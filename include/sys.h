@@ -2,4 +2,4 @@
 /*
     add auto-start in system
 */
-bool SetAutoStart();
+void SetAutoStart();

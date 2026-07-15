@@ -1,7 +1,7 @@
 #include "sys.h"
 #include <iostream>
 #include <windows.h>
-bool SetAutoStart()
+void SetAutoStart()
 {
     WCHAR AppPath[MAX_PATH];
     GetModuleFileNameW(NULL, AppPath, MAX_PATH);
@@ -17,9 +17,9 @@ bool SetAutoStart()
         KEY_SET_VALUE,
         &hKey
     );
-    if (result != ERROR_SUCCESS) {
-        std::wcerr << L"打开注册表失败，错误代码：" << result << std::endl;
-        return false;
+    if (result != ERROR_SUCCESS)
+    {
+        MessageBoxW(NULL,L"打开注册表失败",L"提示",MB_OK);
     }
     result = RegSetValueExW(
         hKey,
@@ -29,11 +29,9 @@ bool SetAutoStart()
         (const BYTE*)appPath.c_str(),
         (appPath.size() + 1) * sizeof(WCHAR)
     );
-
     RegCloseKey(hKey);
-    if (result != ERROR_SUCCESS) {
-        std::wcerr << L"写入注册表失败，错误代码：" << result << std::endl;
-        return false;
+    if (result != ERROR_SUCCESS)
+    {
+        MessageBoxW(NULL,L"写入注册表失败",L"提示",MB_OK);
     }
-    return true;
 }

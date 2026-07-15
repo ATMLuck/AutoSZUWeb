@@ -1,23 +1,77 @@
 #include "curl/curl.h"
+#include <nlohmann/json.hpp>
 #include <string>
 #include <iostream>
+#include <windows.h>
+
 const std::string LOGIN_URL_BASE = "http://172.30.255.42:801/eportal/portal/login";
-void Login(std::string Account,std::string Password)
+
+// curl 写回调 —— 将响应数据追加到 string
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+{
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+bool Login(std::string Account, std::string Password)
 {
     curl_global_init(CURL_GLOBAL_ALL);
     CURL* curl = curl_easy_init();
-    if (!curl) {
-        std::cerr << "curl初始化失败" << std::endl;
-        system("pause");
-        std::exit(0);
+    if (!curl)
+    {
+        MessageBoxW(NULL,L"curl初始化失败",L"提示",MB_OK);
+        return false;
     }
-    std::string FullUrl = LOGIN_URL_BASE + "?user_account=%2C0%2C" + Account + "&user_password=" + Password;
+
+    std::string FullUrl = LOGIN_URL_BASE
+        + "?user_account=%2C0%2C" + Account
+        + "&user_password=" + Password;
+
+    std::string responseBody;
     curl_easy_setopt(curl, CURLOPT_URL, FullUrl.c_str());
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
+
     CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-        std::cerr << "请求失败：" << curl_easy_strerror(res) << std::endl;
+    bool success = false;
+
+    if (res != CURLE_OK)
+    {
+        MessageBoxW(NULL,L"请求失败：",L"提示",MB_OK);
+    }
+    else
+    {
+        // 剥离 jsonpReturn( ... ) 外层, 取内层纯 JSON
+        size_t start = responseBody.find('(');
+        size_t end   = responseBody.rfind(')');
+        if (start != std::string::npos && end != std::string::npos && end > start) 
+        {
+            std::string jsonStr = responseBody.substr(start + 1, end - start - 1);
+            try {
+                nlohmann::json resp = nlohmann::json::parse(jsonStr);
+                int result = resp.value("result", 1);
+                std::string msg = resp.value("msg", "");
+                success = (result == 0);
+                // 弹窗显示 msg
+                int wlen = MultiByteToWideChar(CP_UTF8, 0, msg.c_str(), -1, NULL, 0);
+                std::wstring wmsg(wlen, L'\0');
+                MultiByteToWideChar(CP_UTF8, 0, msg.c_str(), -1, &wmsg[0], wlen);
+                MessageBoxW(NULL, wmsg.c_str(), L"提示", MB_OK);
+            } 
+            catch (const std::exception& e) 
+            {
+                MessageBoxW(NULL,L"JSON解析失败: ",L"提示",MB_OK);
+            }
+        } 
+        else 
+        {
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, responseBody.c_str(), -1, NULL, 0);
+            std::wstring wmsg(wlen, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, responseBody.c_str(), -1, &wmsg[0], wlen);
+            MessageBoxW(NULL, wmsg.c_str(), L"提示", MB_OK);
+        }
     }
     curl_easy_cleanup(curl);
     curl_global_cleanup();
+    return success;
 }

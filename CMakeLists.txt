@@ -37,7 +37,7 @@ target_compile_definitions(AutoSZUWeb PRIVATE CURL_STATICLIB)
 
 # 静态链接
 if(MINGW)
-    target_link_options(AutoSZUWeb PRIVATE -static)
+    target_link_options(AutoSZUWeb PRIVATE -static -mwindows)
 endif()
 
 # ── 链接库 ──────────────────────────────────────

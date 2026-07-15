@@ -27,7 +27,6 @@ void mainwork()
     std::string Account = Logindata["Account"].get<std::string>();
     std::string Password = Logindata["Password"].get<std::string>();
     Login(Account,Password);
-    system("pause");
     std::exit(0);
 }
 void newuser()
@@ -38,7 +37,7 @@ void newuser()
         std::ifstream inFile(in_file_path);
         if (!inFile.is_open())
         {
-            std::cerr << "无法读取指定路径的文件：" << in_file_path << std::endl;
+            MessageBoxW(NULL, L"无法读取指定路径的文件：", L"提示", MB_OK);
             std::exit(1);
         }
         std::string line;
@@ -46,7 +45,7 @@ void newuser()
         std::ofstream outFile(out_file_path);
         if (!outFile.is_open())
         {
-            std::cerr << "无法创建/打开文件进行写入！" << std::endl;
+            MessageBoxW(NULL, L"无法创建/打开文件进行写入！", L"提示", MB_OK);
             std::exit(1);;
         }
         nlohmann::json Userdata;
@@ -80,7 +79,7 @@ void newuser()
         std::ofstream outFile(file_path);
         if (!outFile.is_open())
         {
-            std::cerr << "无法创建/打开文件进行写入！" << std::endl;
+            MessageBoxW(NULL, L"无法创建/打开文件进行写入！", L"提示", MB_OK);
             std::exit(1);
         }
         outFile << "(请将此行替换为校园卡号)\n";
