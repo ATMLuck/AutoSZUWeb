@@ -14,6 +14,7 @@
 #include <curl/curl.h>
 namespace fs = std::filesystem;
 const std::string ConfigFile = "autoWEB.json";
+bool FirstBoot = true;
 
 void mainwork()
 {
@@ -27,7 +28,19 @@ void mainwork()
     std::string Account = Logindata["Account"].get<std::string>();
     std::string Password = Logindata["Password"].get<std::string>();
     Login(Account,Password);
-    std::exit(0);
+    FirstBoot = false;
+    while(1)
+    {
+        if(NetworkCheck())
+        {
+            Sleep(1000*60*10);
+        }
+        else
+        {
+            Login(Account,Password);
+            Sleep(1000*10);
+        }
+    }
 }
 void newuser()
 {
@@ -88,8 +101,8 @@ void newuser()
         std::exit(0);
     }
 }
-int main() {
-    SetConsoleOutputCP(65001);
+int main()
+{
     fs::path first_file_path =  GetUsersFolderPath()/ ConfigFile;
     if (fs::exists(first_file_path) && fs::is_regular_file(first_file_path))
     {
