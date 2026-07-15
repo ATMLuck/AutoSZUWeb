@@ -1,6 +1,6 @@
-windres ico.rc -o ico.o
+windres ./res/ico.rc -o ./res/ico.o
 g++ -std=c++17 -static -DCURL_STATICLIB -I ./include -L ./lib ^
-    ./src/AutoSZUWeb.cpp ./src/sys.cpp ./src/web.cpp ./src/file_path.cpp ico.o ^
+    ./src/AutoSZUWeb.cpp ./src/sys.cpp ./src/web.cpp ./src/file_path.cpp ./res/ico.o ^
     -lcurl -lssl -lcrypto ^
     -lnghttp2 -lnghttp3 -lngtcp2 -lngtcp2_crypto_libressl ^
     -lssh2 -lz ^

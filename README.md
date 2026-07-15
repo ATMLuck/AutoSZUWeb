@@ -51,6 +51,10 @@ cd AutoSZUWeb
 
 # 编译
 build.bat
+#或
+cd build
+cmake .. -G "MinGW Makefiles"
+cmake --build .
 
 # 可执行文件在 build/AutoSZUWeb.exe
 ```
@@ -85,17 +89,6 @@ build.bat
 配置完成后，每次需要登录校园网时运行一次程序即可。如果开启了开机自启（默认），程序会在开机时自动运行。
 
 ---
-
-## 文件说明
-
-| 路径 | 说明 |
-|---|---|
-| `AutoSZUWeb.cpp` | 主程序源码（~240 行） |
-| `build.bat` | Windows 一键编译脚本 |
-| `include/` | 第三方头文件（libcurl, nlohmann/json） |
-| `lib/` | 静态库文件（curl, openssl, nghttp2 等） |
-| `ico/` | 程序图标 |
-| `ico.rc` | Windows 资源文件 |
 
 ### 生成的文件
 
