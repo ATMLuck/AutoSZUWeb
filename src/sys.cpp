@@ -1,7 +1,10 @@
 #include "sys.h"
 #include <windows.h>
 #include <shlobj.h>
+#include <dpapi.h>
+#include <wincrypt.h>
 #include <string>
+#include <vector>
 
 void SetAutoStart()
 {
@@ -43,4 +46,51 @@ void SetAutoStart()
     if (result != ERROR_SUCCESS) {
         MessageBoxW(NULL, L"写入注册表失败", L"提示", MB_OK);
     }
+}
+
+// DPAPI 加密: 明文 → Base64 密文
+std::string EncryptStr(const std::string& plaintext)
+{
+    DATA_BLOB in, out;
+    in.pbData = (BYTE*)plaintext.data();
+    in.cbData = (DWORD)plaintext.size();
+
+    if (!CryptProtectData(&in, L"AutoSZUWeb", NULL, NULL, NULL, 0, &out))
+        return "";
+
+    DWORD b64Len = 0;
+    CryptBinaryToStringA(out.pbData, out.cbData,
+        CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &b64Len);
+    std::string b64Str(b64Len, '\0');
+    CryptBinaryToStringA(out.pbData, out.cbData,
+        CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, &b64Str[0], &b64Len);
+    while (!b64Str.empty() && b64Str.back() == '\0')
+        b64Str.pop_back();
+
+    LocalFree(out.pbData);
+    return b64Str;
+}
+
+// DPAPI 解密: Base64 密文 → 明文
+std::string DecryptStr(const std::string& ciphertext)
+{
+    if (ciphertext.empty()) return "";
+
+    DWORD binLen = 0;
+    CryptStringToBinaryA(ciphertext.data(), (DWORD)ciphertext.size(),
+        CRYPT_STRING_BASE64, NULL, &binLen, NULL, NULL);
+    std::vector<BYTE> binData(binLen);
+    CryptStringToBinaryA(ciphertext.data(), (DWORD)ciphertext.size(),
+        CRYPT_STRING_BASE64, binData.data(), &binLen, NULL, NULL);
+
+    DATA_BLOB in, out;
+    in.pbData = binData.data();
+    in.cbData = binLen;
+
+    if (!CryptUnprotectData(&in, NULL, NULL, NULL, NULL, 0, &out))
+        return "";
+
+    std::string plaintext((char*)out.pbData, out.cbData);
+    LocalFree(out.pbData);
+    return plaintext;
 }

@@ -12,21 +12,21 @@
 
 ## 简介
 
-**AutoSZUWeb** 是一个 Windows 平台下的宿舍区校园网自动登录工具，专为深圳大学学生设计。
+**AutoSZUWeb** 是一个 Windows 后台常驻工具，专为深圳大学宿舍区校园网设计。
 
-每次开机或断网重连后，无需手动打开浏览器输入账号密码 — 程序会自动向后端的 Dr.COM 认证服务器发起登录请求，让你快速恢复网络连接。一次配置，长期使用。
-
-> 支持开机自启动，真正做到无感登录。
+首次配置后，程序会静默常驻后台：每 10 分钟检测一次网络连通性，断网时自动重新登录认证服务器，无需手动操作。程序自身会复制到 `%AppData%` 并注册开机自启，真正做到无感认证。
 
 ---
 
 ## 功能特性
 
-- **一键登录** — 运行即登录，无需打开浏览器
-- **开机自启** — 配置后自动注册到 Windows 启动项，开机无需任何操作
-- **本地存储** — 账号密码保存在 `%APPDATA%\autoWEB.json`，不上传任何第三方
-- **轻量高效** — 单文件程序，静态编译，无需安装运行库
-- **校园网专用** — 针对深大宿舍区 Dr.COM 认证协议定制
+- **后台常驻** — GUI 模式运行，无控制台窗口，静默驻留
+- **断网自动重连** — 每 10 分钟检测网络状态，断开后自动重新登录
+- **开机自启** — 首次配置后自动复制到 `%AppData%` 并写入注册表启动项
+- **首次弹窗反馈** — 首次启动时弹窗显示登录结果，后续静默重连
+- **本地存储** — 账号密码保存在 `%APPDATA%\autoWEB.json`，不上传第三方
+- **单文件分发** — 静态编译，无需安装运行库
+
 ---
 
 ## 快速开始
@@ -34,7 +34,7 @@
 ### 环境要求
 
 - Windows 操作系统
-- Shenzhen University 宿舍区校园网环境
+- 深圳大学宿舍区校园网环境
 
 ### 方式一：直接使用（推荐）
 
@@ -42,21 +42,18 @@
 
 ### 方式二：从源码构建
 
-需要安装 [MSYS2](https://www.msys2.org/) 并配置 MinGW-w64 (g++) 工具链。
-
 ```bash
 # 克隆仓库
 git clone https://github.com/ATMluck/AutoSZUWeb.git
 cd AutoSZUWeb
 
-# 编译
+# MinGW 一键编译
 build.bat
-#或
-cd build
+
+# 或使用 CMake
+mkdir build && cd build
 cmake .. -G "MinGW Makefiles"
 cmake --build .
-
-# 可执行文件在 build/AutoSZUWeb.exe
 ```
 
 ---
@@ -65,28 +62,28 @@ cmake --build .
 
 ### 首次配置
 
-1. **双击运行** `AutoSZUWeb.exe`
-
-2. 程序会弹出提示框，告知配置方法
-
-3. **桌面上会自动生成 `userdata.txt` 文件**，用记事本打开
-
-4. **编辑文件**，第一行填写学号/校园卡号，第二行填写统一身份认证密码：
+1. **双击运行** `AutoSZUWeb.exe`，弹出提示框
+2. 桌面自动生成 `userdata.txt`，用记事本打开
+3. **编辑文件**：第一行学号/校园卡号，第二行统一身份认证密码
 
    ```
    2023123456
    your_password_here
    ```
 
-5. **保存文件**，再次双击运行 `AutoSZUWeb.exe`
+4. **保存文件**，再次双击运行 `AutoSZUWeb.exe`
+5. 程序读取配置、完成首次登录，弹窗显示认证结果
+6. 程序自动复制自身到 `%APPDATA%\AutoSZUWeb\` 并注册开机自启
 
-6. 程序读取配置并完成登录，控制台将显示登录结果
+> 桌面上的 `userdata.txt` 会在配置成功后自动删除。
 
-> 配置成功后，桌面上的 `userdata.txt` 会自动删除，账号密码已保存至 `%APPDATA%\autoWEB.json`。
+### 日常运行
 
-### 日常使用
+配置完成后无需任何操作。程序开机自启后常驻后台：
 
-配置完成后，每次需要登录校园网时运行一次程序即可。如果开启了开机自启（默认），程序会在开机时自动运行。
+- 每 **10 分钟** 检测一次网络连通性
+- 检测到断网时立即重新登录，间隔 **10 秒** 重试直到恢复
+- 后台重连不弹窗，静默运行
 
 ---
 
@@ -94,27 +91,61 @@ cmake --build .
 
 | 路径 | 说明 |
 |---|---|
-| `%APPDATA%\autoWEB.json` | 保存的账号密码（JSON 格式） |
-| `Desktop\userdata.txt` | 首次配置时的临时文件（配置后自动删除） |
+| `%APPDATA%\autoWEB.json` | 加密保存的账号密码（JSON 格式） |
+| `%APPDATA%\AutoSZUWeb\AutoSZUWeb.exe` | 程序自身副本，用于开机自启 |
+| `Desktop\userdata.txt` | 首次配置临时文件（配置后自动删除） |
+
+### 修改密码 / 重新配置
+
+删除 `%APPDATA%\autoWEB.json`，重新运行程序即可重新走首次配置流程。
+
+---
+
+## 工作流程
+
+```
+首次启动                         常驻后台
+   │                                │
+   ├─ 生成 userdata.txt              ├─ DPAPI 解密 autoWEB.json
+   ├─ 用户填写账号密码                ├─ 每 10 分钟 NetworkCheck
+   ├─ DPAPI 加密 → autoWEB.json      │     ├─ 网络在线 → 继续睡眠
+   ├─ Login() 弹窗反馈                │     └─ 网络断开 → Login()
+   ├─ SetAutoStart()                  │            ├─ 成功 → 继续循环
+   │   ├─ 复制 exe 到 AppData          │            └─ 失败 → 10 秒后重试
+   │   └─ 写入注册表 Run               │
+   └─ 进入常驻循环 ───────────────────┘
+```
 
 ---
 
 ## 技术栈
 
 - **语言**: C++17
-- **编译器**: MinGW-w64 (g++)
-- **HTTP 库**: [libcurl](https://curl.se/libcurl/) (静态链接)
+- **编译器**: MinGW-w64 (g++)，静态链接 + `-mwindows`
+- **HTTP 库**: [libcurl](https://curl.se/libcurl/)（静态链接）
 - **JSON 库**: [nlohmann/json](https://github.com/nlohmann/json)
-- **认证协议**: Dr.COM 校园网认证
+- **网络检测**: Winsock2 TCP connect + select 超时
+- **凭据加密**: Windows DPAPI (`CryptProtectData` / `CryptUnprotectData`) + Base64 编码
+- **认证**: 深大 ePortal Dr.COM 校园网认证 (`172.30.255.42:801`)
+
+---
+
+## 加密说明
+
+账号密码使用 **Windows DPAPI** 加密后以 Base64 字符串存入 JSON，非明文落盘。
+
+- **密钥由 Windows 保管**，无需用户记忆额外密码
+- **绑定 Windows 用户**：只有加密时的同一用户在同一台电脑上才能解密
+- 正常修改 Windows 密码不影响解密；管理员强制重置密码会导致解密失败，此时删除 `%APPDATA%\autoWEB.json` 重新配置即可
 
 ---
 
 ## 注意事项
 
-- 本程序仅适用于**深圳大学宿舍区**校园网（Dr.COM 认证系统），不适用于教学区或校外网络
-- 账号密码以明文形式存储在本地 `%APPDATA%\autoWEB.json`，请注意保护个人电脑安全
-- 登录请求通过内网 HTTP 发送至认证服务器 (`172.30.255.42`)，不会经过外网
-- 如更换密码，直接删除 `%APPDATA%\autoWEB.json` 后重新运行程序即可重新配置
+- 本程序仅适用于**深圳大学宿舍区**校园网认证系统，不适用于教学区或校外网络
+- 凭据以 DPAPI 密文存储在本地 `%APPDATA%\autoWEB.json`，在当前 Windows 用户下运行的恶意软件理论上可调用 DPAPI 解密，请注意电脑安全
+- 登录请求通过内网 HTTP 发送至 `172.30.255.42`，不会经过外网
+- 程序会复制自身到 AppData 并注册自启，卸载时删除注册表项 `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\AutoSZUWeb` 和 `%APPDATA%\AutoSZUWeb\` 目录即可
 
 ---
 

@@ -25,8 +25,8 @@ void mainwork()
     LoginFile >> Logindata;
     LoginFile.close();
 
-    std::string Account = Logindata["Account"].get<std::string>();
-    std::string Password = Logindata["Password"].get<std::string>();
+    std::string Account = DecryptStr(Logindata["Account"].get<std::string>());
+    std::string Password = DecryptStr(Logindata["Password"].get<std::string>());
     Login(Account,Password);
     FirstBoot = false;
     while(1)
@@ -65,8 +65,8 @@ void newuser()
         int i = 0;
         while (std::getline(inFile, line))
         {
-            if(i == 0) Userdata["Account"] = line;
-            if(i == 1) Userdata["Password"] = line;
+            if(i == 0) Userdata["Account"] = EncryptStr(line);
+            if(i == 1) Userdata["Password"] = EncryptStr(line);
             i++;
         }
         outFile << Userdata;
