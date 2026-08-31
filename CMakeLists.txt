@@ -10,6 +10,7 @@ set(SOURCES
     src/sys.cpp
     src/web.cpp
     src/file_path.cpp
+    src/srun.cpp
 )
 
 # ── 图标资源 (MinGW windres) ────────────────────
