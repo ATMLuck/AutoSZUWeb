@@ -13,13 +13,12 @@
 #include <filesystem>
 #include <curl/curl.h>
 namespace fs = std::filesystem;
-const std::string ConfigFile = "autoWEB.json";
 bool FirstBoot = true;
 
 void mainwork()
 {
     nlohmann::json Logindata;
-    fs::path LoginPath =  GetUsersFolderPath() / ConfigFile;
+    fs::path LoginPath =  GetConfigPath();
     
     std::ifstream LoginFile(LoginPath);
     LoginFile >> Logindata;
@@ -54,7 +53,7 @@ void newuser()
             std::exit(1);
         }
         std::string line;
-        fs::path out_file_path =  GetUsersFolderPath() / "autoWEB.json";
+        fs::path out_file_path =  GetConfigPath();
         std::ofstream outFile(out_file_path);
         if (!outFile.is_open())
         {
@@ -103,7 +102,7 @@ void newuser()
 }
 int main()
 {
-    fs::path first_file_path =  GetUsersFolderPath()/ ConfigFile;
+    fs::path first_file_path =  GetConfigPath();
     if (fs::exists(first_file_path) && fs::is_regular_file(first_file_path))
     {
         mainwork();

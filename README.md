@@ -24,7 +24,7 @@
 - **断网自动重连** — 每 10 分钟检测网络状态，断开后自动重新登录
 - **开机自启** — 首次配置后自动复制到 %AppData% 并写入注册表启动项
 - **首次弹窗反馈** — 首次启动时弹窗显示登录结果，后续静默重连
-- **本地存储** — 账号密码保存在 %APPDATA%\autoWEB.json，不上传第三方
+- **本地存储** — 账号密码保存在 %APPDATA%\AutoSZUWeb\setting.json，不上传第三方
 - **单文件分发** — 静态编译，无需安装运行库
 
 ---
@@ -91,13 +91,13 @@ cmake --build .
 
 | 路径 | 说明 |
 |---|---|
-| `%APPDATA%\autoWEB.json` | 加密保存的账号密码（JSON 格式） |
+| `%APPDATA%\AutoSZUWeb\setting.json` | 加密保存的账号密码（JSON 格式） |
 | `%APPDATA%\AutoSZUWeb\AutoSZUWeb.exe` | 程序自身副本，用于开机自启 |
 | `Desktop\userdata.txt` | 首次配置临时文件（配置后自动删除） |
 
 ### 修改密码 / 重新配置
 
-删除 %APPDATA%\autoWEB.json，重新运行程序即可重新走首次配置流程。
+删除 %APPDATA%\AutoSZUWeb\setting.json，重新运行程序即可重新走首次配置流程。
 
 ---
 
@@ -106,9 +106,9 @@ cmake --build .
 ```
 首次启动                         常驻后台
    │                                │
-   ├─ 生成 userdata.txt              ├─ DPAPI 解密 autoWEB.json
+   ├─ 生成 userdata.txt              ├─ DPAPI 解密 setting.json
    ├─ 用户填写账号密码                ├─ 每 10 分钟 NetworkCheck
-   ├─ DPAPI 加密 → autoWEB.json      │     ├─ 网络在线 → 继续睡眠
+   ├─ DPAPI 加密 → setting.json      │     ├─ 网络在线 → 继续睡眠
    ├─ Login() 弹窗反馈                │     └─ 网络断开 → Login()
    ├─ SetAutoStart()                  │            ├─ 成功 → 继续循环
    │   ├─ 复制 exe 到 AppData          │            └─ 失败 → 10 秒后重试
@@ -136,14 +136,14 @@ cmake --build .
 
 - **密钥由 Windows 保管**，无需用户记忆额外密码
 - **绑定 Windows 用户**：只有加密时的同一用户在同一台电脑上才能解密
-- 正常修改 Windows 密码不影响解密；管理员强制重置密码会导致解密失败，此时删除 %APPDATA%\autoWEB.json 重新配置即可
+- 正常修改 Windows 密码不影响解密；管理员强制重置密码会导致解密失败，此时删除 %APPDATA%\AutoSZUWeb\setting.json 重新配置即可
 
 ---
 
 ## 注意事项
 
 - 本程序仅适用于**深圳大学宿舍区**校园网认证系统，不适用于教学区或校外网络
-- 凭据以 DPAPI 密文存储在本地 %APPDATA%\autoWEB.json，在当前 Windows 用户下运行的恶意软件理论上可调用 DPAPI 解密，请注意电脑安全
+- 凭据以 DPAPI 密文存储在本地 %APPDATA%\AutoSZUWeb\setting.json，在当前 Windows 用户下运行的恶意软件理论上可调用 DPAPI 解密，请注意电脑安全
 - 登录请求通过内网 HTTP 发送至 172.30.255.42，不会经过外网
 - 程序会复制自身到 AppData 并注册自启，卸载时删除注册表项 HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\AutoSZUWeb 和 %APPDATA%\AutoSZUWeb\目录即可
 
