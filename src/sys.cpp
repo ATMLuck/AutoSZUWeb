@@ -1,10 +1,14 @@
 #include "sys.h"
+#include "file_path.h"
 #include <windows.h>
 #include <shlobj.h>
 #include <dpapi.h>
 #include <wincrypt.h>
 #include <string>
 #include <vector>
+#include <filesystem>
+#include <fstream>
+#include <cstdio>
 
 void SetAutoStart()
 {
@@ -93,4 +97,34 @@ std::string DecryptStr(const std::string& ciphertext)
     std::string plaintext((char*)out.pbData, out.cbData);
     LocalFree(out.pbData);
     return plaintext;
+}
+
+void WriteAuthLog(const std::string& method, bool success,
+                  const std::string& deviceIp, const std::string& message)
+{
+    // 时间戳 YYYY-MM-DD HH:MM:SS, 文件名取日期按天分文件
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char timeBuf[32];
+    std::snprintf(timeBuf, sizeof(timeBuf), "%04d-%02d-%02d %02d:%02d:%02d",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    char dateBuf[16];
+    std::snprintf(dateBuf, sizeof(dateBuf), "%04d-%02d-%02d",
+        st.wYear, st.wMonth, st.wDay);
+
+    // 日志存放于 %APPDATA%\AutoSZUWeb\logs\auth_YYYY-MM-DD.log, 追加写
+    fs::path logDir = GetUsersFolderPath() / "AutoSZUWeb" / "logs";
+    std::error_code ec;
+    fs::create_directories(logDir, ec);
+    std::ofstream log(logDir / ("auth_" + std::string(dateBuf) + ".log"), std::ios::app);
+    if (!log.is_open())
+        return;
+
+    log << "[" << timeBuf << "] 方式=" << method
+        << " 结果=" << (success ? "成功" : "失败");
+    if (success)
+        log << " IP=" << deviceIp;
+    else
+        log << " 原因=" << message;
+    log << std::endl;
 }

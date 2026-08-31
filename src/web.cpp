@@ -1,5 +1,6 @@
 #include "curl/curl.h"
 #include "srun.h"
+#include "sys.h"
 #include <nlohmann/json.hpp>
 #include <winsock2.h>
 #include <windows.h>
@@ -15,6 +16,35 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
 {
     ((std::string*)userp)->append((char*)contents, size * nmemb);
     return size * nmemb;
+}
+
+// 获取本机当前网络 IP (UDP 连接不实际发包, 仅取路由出接口地址)
+static std::string GetLocalIp()
+{
+    SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock == INVALID_SOCKET)
+        return "";
+
+    sockaddr_in remote{};
+    remote.sin_family = AF_INET;
+    remote.sin_port = htons(53);
+    inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr);
+
+    std::string ip;
+    if (connect(sock, (sockaddr*)&remote, sizeof(remote)) == 0)
+    {
+        sockaddr_in local{};
+        int len = sizeof(local);
+        if (getsockname(sock, (sockaddr*)&local, &len) == 0)
+        {
+            char buf[INET_ADDRSTRLEN] = {};
+            inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf));
+            if (std::string(buf) != "0.0.0.0")
+                ip = buf;
+        }
+    }
+    closesocket(sock);
+    return ip;
 }
 
 // UTF-8 → 宽字符, 供 MessageBoxW 使用
@@ -87,9 +117,24 @@ bool Login(std::string Account, std::string Password)
 {
     curl_global_init(CURL_GLOBAL_ALL);
 
-    std::string srunMsg, dormMsg;
+    std::string srunMsg, dormMsg, method;
     bool ok = SrunLogin(Account, Password, srunMsg);
-    if (!ok) ok = LoginDormitory(Account, Password, dormMsg);
+    if (ok)
+    {
+        method = "SRun(教学区)";
+    }
+    else
+    {
+        ok = LoginDormitory(Account, Password, dormMsg);
+        method = ok ? "ePortal(宿舍区)" : "SRun→ePortal";
+    }
+
+    // 认证日志: 成功记设备IP, 失败记失败原因
+    std::string logReason;
+    if (!ok)
+        logReason = "教学区: " + (srunMsg.empty() ? std::string("无") : srunMsg)
+            + "; 宿舍区: " + (dormMsg.empty() ? std::string("无") : dormMsg);
+    WriteAuthLog(method, ok, ok ? GetLocalIp() : "", logReason);
 
     if (FirstBoot)
     {
