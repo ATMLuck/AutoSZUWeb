@@ -12,9 +12,9 @@
 
 ## 简介
 
-**AutoSZUWeb** 是一个 Windows 后台常驻工具，专为深圳大学宿舍区校园网设计。
+**AutoSZUWeb** 是一个 Windows 后台常驻工具，专为深圳大学校园网设计。
 
-首次配置后，程序会静默常驻后台：每 10 分钟检测一次网络连通性，断网时自动重新登录认证服务器，无需手动操作。程序自身会复制到 %AppData% 并注册开机自启，真正做到无感认证。
+首次配置后，程序会静默常驻后台：每 10 分钟检测一次网络连通性，断网时自动重新登录认证服务器，无需手动操作。程序自身会复制到 %AppData%/AutoSZUWeb 并注册开机自启，真正做到无感认证。
 
 ---
 
@@ -24,7 +24,7 @@
 - **断网自动重连** — 每 10 分钟检测网络状态，断开后自动重新登录
 - **开机自启** — 首次配置后自动复制到 %AppData% 并写入注册表启动项
 - **首次弹窗反馈** — 首次启动时弹窗显示登录结果，后续静默重连
-- **本地存储** — 账号密码保存在 %APPDATA%\AutoSZUWeb\setting.json，不上传第三方
+- **本地存储** — 账号密码加密保存在 %APPDATA%\AutoSZUWeb\setting.json，不上传第三方
 - **单文件分发** — 静态编译，无需安装运行库
 
 ---
@@ -34,7 +34,7 @@
 ### 环境要求
 
 - Windows 操作系统
-- 深圳大学宿舍区校园网环境
+- 深圳大学校园网环境
 
 ### 方式一：直接使用（推荐）
 
@@ -67,7 +67,7 @@ cmake --build .
 3. **编辑文件**：第一行学号/校园卡号，第二行统一身份认证密码
 
    ```
-   2023123456
+   2025123456
    your_password_here
    ```
 
@@ -126,7 +126,7 @@ cmake --build .
 - **JSON 库**: [nlohmann/json](https://github.com/nlohmann/json)
 - **网络检测**: Winsock2 TCP connect + select 超时
 - **凭据加密**: Windows DPAPI (CryptProtectData / CryptUnprotectData) + Base64 编码
-- **认证**: 深大 ePortal Dr.COM 校园网认证 (172.30.255.42:801)
+- **认证**: 深大 Dr.COM，SRun 校园网认证
 
 ---
 
@@ -142,7 +142,7 @@ cmake --build .
 
 ## 注意事项
 
-- 本程序仅适用于**深圳大学宿舍区**校园网认证系统，不适用于教学区或校外网络
+- 本程序仅适用于**深圳大学**校园网认证系统，不适用于校外网络
 - 凭据以 DPAPI 密文存储在本地 %APPDATA%\AutoSZUWeb\setting.json，在当前 Windows 用户下运行的恶意软件理论上可调用 DPAPI 解密，请注意电脑安全
 - 登录请求通过内网 HTTP 发送至 172.30.255.42，不会经过外网
 - 程序会复制自身到 AppData 并注册自启，卸载时删除注册表项 HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\AutoSZUWeb 和 %APPDATA%\AutoSZUWeb\目录即可
