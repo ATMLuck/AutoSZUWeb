@@ -151,37 +151,70 @@ bool Login(std::string Account, std::string Password)
     return ok;
 }
 
-// TCP connect 测试目标可达性, 非阻塞 + select 控制超时
-bool NetworkCheck(const char* ip, int port, int timeoutMs)
+namespace
+{
+    struct Probe { const char* ip; int port; };
+    // 默认探测端点: 国内公共 DNS 优先 (TCP 53), Google 兜底
+    const Probe kDefaultProbes[] = {
+        { "119.29.29.29", 53 },   // DNSPod(腾讯)
+        { "223.5.5.5",    53 },   // AliDNS
+        { "114.114.114.114", 53 },// 114DNS
+        { "8.8.8.8",      53 },   // Google
+    };
+
+    // 探测单个目标: 非阻塞 connect + select 超时, 成功返回 true
+    bool ProbeTcp(const char* ip, int port, int timeoutMs)
+    {
+        SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (sock == INVALID_SOCKET)
+            return false;
+
+        u_long mode = 1;
+        ioctlsocket(sock, FIONBIO, &mode);
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port   = htons(port);
+        inet_pton(AF_INET, ip, &addr.sin_addr);
+
+        connect(sock, (sockaddr*)&addr, sizeof(addr));
+
+        fd_set fd;
+        FD_ZERO(&fd);
+        FD_SET(sock, &fd);
+        timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
+
+        bool ok = false;
+        if (select(0, nullptr, &fd, nullptr, &tv) > 0)
+        {
+            // select 可写 ≠ 已连接: 读真实错误码, 拒绝/重置不计为在线
+            int err = 0;
+            int len = sizeof(err);
+            getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&err, &len);
+            ok = (err == 0);
+        }
+
+        closesocket(sock);
+        return ok;
+    }
+}
+
+// 网络连通性检测: 遍历内置端点, 任一 TCP 可达即认为外网在线
+bool NetworkCheck(int timeoutMs)
 {
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
         return false;
 
-    SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock == INVALID_SOCKET) {
-        WSACleanup();
-        return false;
+    bool ok = false;
+    for (const auto& p : kDefaultProbes)
+    {
+        if (ProbeTcp(p.ip, p.port, timeoutMs))
+        {
+            ok = true;
+            break;
+        }
     }
-
-    u_long mode = 1;
-    ioctlsocket(sock, FIONBIO, &mode);
-
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port   = htons(port);
-    inet_pton(AF_INET, ip, &addr.sin_addr);
-
-    connect(sock, (sockaddr*)&addr, sizeof(addr));
-
-    fd_set fd;
-    FD_ZERO(&fd);
-    FD_SET(sock, &fd);
-    timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
-
-    bool ok = select(0, nullptr, &fd, nullptr, &tv) > 0;
-
-    closesocket(sock);
     WSACleanup();
     return ok;
 }

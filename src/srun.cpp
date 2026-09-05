@@ -9,7 +9,7 @@
 #include <cstring>
 #include <cctype>
 
-// SRun (深澜) 教学/办公区认证协议实现, 移植自 Python 版 srun.py。
+// SRun (深澜) 教学/办公区认证协议实现
 // 关键步骤: get_challenge → 用 challenge 构造加密载荷 → srun_portal 登录。
 // 全部请求复用同一个 curl 句柄并启用 Cookie 引擎, 与参考实现同 session 行为一致。
 namespace
@@ -61,7 +61,7 @@ namespace
         return values;
     }
 
-    // XXTEA 兼容加密, 与 Python xencode 逐字节一致
+    // XXTEA 兼容加密
     static std::string XEncode(const std::string& content, const std::string& key)
     {
         if (content.empty())
@@ -281,7 +281,7 @@ bool SrunLogin(const std::string& account, const std::string& password, std::str
                     {"ip", client_ip}, {"acid", ac_id}, {"enc_ver", "srun_bx1"}
                 };
                 std::string info = "{SRBX1}" + SrunBase64(XEncode(info_json.dump(), challenge));
-                // chksum: challenge 逐段前置 (深澜校验算法, 与 srun.py 一致)
+                // chksum: challenge 逐段前置
                 std::string checksum_source =
                     challenge + account + challenge + password_md5 + challenge + ac_id
                     + challenge + client_ip + challenge + "200" + challenge + "1"

@@ -14,14 +14,14 @@
 
 **AutoSZUWeb** 是一个 Windows 后台常驻工具，专为深圳大学宿舍区校园网设计。
 
-首次配置后，程序会静默常驻后台：每 10 分钟检测一次网络连通性，断网时自动重新登录认证服务器，无需手动操作。程序自身会复制到 %AppData% 并注册开机自启，真正做到无感认证。
+首次配置后，程序会静默常驻后台：在线时每 10 秒探测一次网络连通性，断开即判定离线并自动重新登录认证服务器，无需手动操作。程序自身会复制到 %AppData% 并注册开机自启，真正做到无感认证。
 
 ---
 
 ## 功能特性
 
 - **后台常驻** — GUI 模式运行，无控制台窗口，静默驻留
-- **断网自动重连** — 每 10 分钟检测网络状态，断开后自动重新登录
+- **断网自动重连** — 在线时每 10 秒探测网络状态，断开即判定离线并自动重新登录
 - **开机自启** — 首次配置后自动复制到 %AppData% 并写入注册表启动项
 - **首次弹窗反馈** — 首次启动时弹窗显示登录结果，后续静默重连
 - **本地存储** — 账号密码保存在 %APPDATA%\AutoSZUWeb\setting.json，不上传第三方
@@ -81,8 +81,8 @@ cmake --build .
 
 配置完成后无需任何操作。程序开机自启后常驻后台：
 
-- 每 **10 分钟** 检测一次网络连通性
-- 检测到断网时立即重新登录，间隔 **10 秒** 重试直到恢复
+- 在线时每 **10 秒** 探测一次网络连通性，连通则无动作
+- 探测到断开即判定离线，离线时每 **10 秒** 登录一次直到恢复
 - 后台重连不弹窗，静默运行
 
 ---
@@ -107,12 +107,12 @@ cmake --build .
 首次启动                         常驻后台
    │                                │
    ├─ 生成 userdata.txt              ├─ DPAPI 解密 setting.json
-   ├─ 用户填写账号密码                ├─ 每 10 分钟 NetworkCheck
-   ├─ DPAPI 加密 → setting.json      │     ├─ 网络在线 → 继续睡眠
-   ├─ Login() 弹窗反馈                │     └─ 网络断开 → Login()
-   ├─ SetAutoStart()                  │            ├─ 成功 → 继续循环
-   │   ├─ 复制 exe 到 AppData          │            └─ 失败 → 10 秒后重试
-   │   └─ 写入注册表 Run               │
+   ├─ 用户填写账号密码                ├─ 在线态: 每 10s NetworkCheck
+   ├─ DPAPI 加密 → setting.json      │     ├─ 连通 → 无动作
+   ├─ Login() 弹窗反馈                │     └─ 断开 → 转离线态
+   ├─ SetAutoStart()                  ├─ 离线态: 每 10s Login()
+   │   ├─ 复制 exe 到 AppData          │     ├─ 成功 → 转在线态
+   │   └─ 写入注册表 Run               │     └─ 失败 → 10s 后重试
    └─ 进入常驻循环 ───────────────────┘
 ```
 
@@ -124,9 +124,9 @@ cmake --build .
 - **编译器**: MinGW-w64 (g++)，静态链接 + -mwindows
 - **HTTP 库**: [libcurl](https://curl.se/libcurl/)（静态链接）
 - **JSON 库**: [nlohmann/json](https://github.com/nlohmann/json)
-- **网络检测**: Winsock2 TCP connect + select 超时
+- **网络检测**: Winsock2 TCP connect + select 超时，多目标公共 DNS（TCP 53）冗余探测
 - **凭据加密**: Windows DPAPI (CryptProtectData / CryptUnprotectData) + Base64 编码
-- **认证**: 深大 ePortal Dr.COM 校园网认证 (172.30.255.42:801)
+- **认证**: 教学/办公区 SRun（net.szu.edu.cn）+ 宿舍区 ePortal Dr.COM（172.30.255.42:801），SRun 优先、失败自动回退
 
 ---
 
@@ -142,7 +142,7 @@ cmake --build .
 
 ## 注意事项
 
-- 本程序仅适用于**深圳大学宿舍区**校园网认证系统，不适用于教学区或校外网络
+- 本程序适用于**深圳大学宿舍区与教学/办公区**校园网认证（教学区 SRun / 宿舍区 ePortal），不适用于校外网络
 - 凭据以 DPAPI 密文存储在本地 %APPDATA%\AutoSZUWeb\setting.json，在当前 Windows 用户下运行的恶意软件理论上可调用 DPAPI 解密，请注意电脑安全
 - 登录请求通过内网 HTTP 发送至 172.30.255.42，不会经过外网
 - 程序会复制自身到 AppData 并注册自启，卸载时删除注册表项 HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\AutoSZUWeb 和 %APPDATA%\AutoSZUWeb\目录即可

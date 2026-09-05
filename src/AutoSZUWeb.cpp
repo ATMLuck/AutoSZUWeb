@@ -26,19 +26,25 @@ void mainwork()
 
     std::string Account = DecryptStr(Logindata["Account"].get<std::string>());
     std::string Password = DecryptStr(Logindata["Password"].get<std::string>());
-    Login(Account,Password);
+    // 启动即登录一次: 结果决定初始在线/离线态, 首次弹窗反馈在 Login 内
+    bool online = Login(Account,Password);
     FirstBoot = false;
-    while(1)
+
+    while (1)
     {
-        if(NetworkCheck())
+        if (online)
         {
-            Sleep(1000*60*10);
+            // 在线态: 每 10s 探测一次, 不通即转离线
+            if (!NetworkCheck())
+                online = false;
         }
         else
         {
-            Login(Account,Password);
-            Sleep(1000*10);
+            // 离线态: 每 10s 登录一次, 成功即转在线
+            if (Login(Account, Password))
+                online = true;
         }
+        Sleep(1000 * 10);
     }
 }
 void newuser()
