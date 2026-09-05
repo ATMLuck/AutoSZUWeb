@@ -93,6 +93,7 @@ cmake --build .
 |---|---|
 | `%APPDATA%\AutoSZUWeb\setting.json` | 加密保存的账号密码（JSON 格式） |
 | `%APPDATA%\AutoSZUWeb\AutoSZUWeb.exe` | 程序自身副本，用于开机自启 |
+| `%APPDATA%\AutoSZUWeb\logs\auth_YYYY-MM-DD.log` | 程序连接日志 |
 | `Desktop\userdata.txt` | 首次配置临时文件（配置后自动删除） |
 
 ### 修改密码 / 重新配置

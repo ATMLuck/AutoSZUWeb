@@ -250,7 +250,7 @@ bool SrunLogin(const std::string& account, const std::string& password, std::str
     {
         std::string ac_id = DiscoverAcId(curl);
 
-        // ① 获取 challenge 与客户端 IP
+        // 获取 challenge 与客户端 IP
         std::string challenge_url = SRUN_BASE_URL + "/cgi-bin/get_challenge?callback=_&username="
             + UrlEscape(curl, account) + "&ip=";
         std::string body, err;
@@ -274,7 +274,7 @@ bool SrunLogin(const std::string& account, const std::string& password, std::str
             }
             else
             {
-                // ② 构造加密载荷: info + chksum
+                // 构造加密载荷: info + chksum
                 std::string password_md5 = HmacMd5Hex(challenge, password);
                 nlohmann::ordered_json info_json = {
                     {"username", account}, {"password", password},
@@ -288,7 +288,7 @@ bool SrunLogin(const std::string& account, const std::string& password, std::str
                     + challenge + info;
                 std::string checksum = Sha1Hex(checksum_source);
 
-                // ③ 提交登录
+                // 提交登录
                 std::string portal_url = SRUN_BASE_URL + "/cgi-bin/srun_portal"
                     + "?callback=_&action=login"
                     + "&username=" + UrlEscape(curl, account)
