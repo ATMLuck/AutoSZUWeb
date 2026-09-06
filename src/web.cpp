@@ -57,7 +57,8 @@ static std::wstring Utf8ToWide(const std::string& text)
 }
 
 // 宿舍区 ePortal 认证, 成功返回 true, 失败填充 message (不弹窗)
-static bool LoginDormitory(const std::string& Account, const std::string& Password, std::string& message)
+static bool LoginDormitory(const std::string& Account, const std::string& Password,
+                           std::string& message, std::string& note)
 {
     CURL* curl = curl_easy_init();
     if (!curl)
@@ -95,7 +96,14 @@ static bool LoginDormitory(const std::string& Account, const std::string& Passwo
                 nlohmann::json resp = nlohmann::json::parse(responseBody.substr(start + 1, end - start - 1));
                 int result = resp.value("result", 1);
                 std::string msg = resp.value("msg", "");
-                success = (result == 0);
+                // 成功判据: result==0, 或服务器返回"认证成功"文案
+                // (账号已在线/重复认证时 Dr.COM 常回非0 result 但 msg 仍为成功文案)
+                bool resultOk = (result == 0);
+                bool msgOk = msg.find("认证成功") != std::string::npos;
+                success = resultOk || msgOk;
+                if (success && !resultOk)
+                    note = "服务器回 result=" + std::to_string(result)
+                        + "原始响应: \n" + responseBody;
                 message = msg.empty() ? (success ? "宿舍区认证成功" : "宿舍区认证失败") : msg;
             }
             catch (const std::exception&)
@@ -117,29 +125,33 @@ bool Login(std::string Account, std::string Password)
 {
     curl_global_init(CURL_GLOBAL_ALL);
 
-    std::string srunMsg, dormMsg, method;
+    std::string srunMsg, dormMsg, method, okMsg, logNote;
     bool ok = SrunLogin(Account, Password, srunMsg);
     if (ok)
     {
         method = "SRun(教学区)";
+        okMsg = srunMsg;
     }
     else
     {
-        ok = LoginDormitory(Account, Password, dormMsg);
+        ok = LoginDormitory(Account, Password, dormMsg, logNote);
         method = ok ? "ePortal(宿舍区)" : "SRun→ePortal";
+        if (ok)
+            okMsg = dormMsg;
     }
 
-    // 认证日志: 成功记设备IP, 失败记失败原因
+    // 认证日志: 成功记设备IP(可带详情), 失败记失败原因
     std::string logReason;
     if (!ok)
         logReason = "教学区: " + (srunMsg.empty() ? std::string("无") : srunMsg)
             + "; 宿舍区: " + (dormMsg.empty() ? std::string("无") : dormMsg);
-    WriteAuthLog(method, ok, ok ? GetLocalIp() : "", logReason);
+    WriteAuthLog(method, ok, ok ? GetLocalIp() : "", ok ? logNote : logReason);
 
     if (FirstBoot)
     {
+        // 弹窗只显示实际成功的那条消息, 避免把失败方式的文案当结果展示
         if (ok)
-            MessageBoxW(NULL, Utf8ToWide(srunMsg.empty() ? dormMsg : srunMsg).c_str(), L"提示", MB_OK);
+            MessageBoxW(NULL, Utf8ToWide(okMsg).c_str(), L"提示", MB_OK);
         else
             MessageBoxW(NULL, Utf8ToWide(
                 "教学区认证失败: " + (srunMsg.empty() ? std::string("无") : srunMsg)
@@ -156,7 +168,7 @@ namespace
     struct Probe { const char* ip; int port; };
     // 默认探测端点: 国内公共 DNS 优先 (TCP 53), Google 兜底
     const Probe kDefaultProbes[] = {
-        { "119.29.29.29", 53 },   // DNSPod(腾讯)
+        { "119.29.29.29", 53 },   // DNSPod
         { "223.5.5.5",    53 },   // AliDNS
         { "114.114.114.114", 53 },// 114DNS
         { "8.8.8.8",      53 },   // Google

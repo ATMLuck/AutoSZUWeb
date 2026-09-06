@@ -123,8 +123,15 @@ void WriteAuthLog(const std::string& method, bool success,
     log << "[" << timeBuf << "] 方式=" << method
         << " 结果=" << (success ? "成功" : "失败");
     if (success)
+    {
         log << " IP=" << deviceIp;
+        // 成功时若带 message(如重复认证的服务器原始响应)一并输出, 便于排查
+        if (!message.empty())
+            log << " 详情=" << message;
+    }
     else
+    {
         log << " 原因=" << message;
+    }
     log << std::endl;
 }
