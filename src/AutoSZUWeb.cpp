@@ -3,6 +3,7 @@
 #include "runtime.h"
 #include "sys.h"
 #include "web.h"
+#include "user_data.h"
 
 #include <nlohmann/json.hpp>
 
@@ -90,26 +91,17 @@ namespace
 
             std::error_code error;
             fs::create_directories(desktop, error);
-            std::ofstream output(inputPath, std::ios::trunc);
-            if (!output)
-                ExitWithMessage("无法在桌面创建 userdata.txt。macOS 首次使用时请允许访问桌面文件夹。");
-            output << "(请将此行替换为校园卡号)\n"
-                   << "(请将此行替换为统一身份认证平台密码，替换后请保存)\n";
-            std::exit(0);
+            std::string fileError;
+            if (!UserData::CreateTemplate(inputPath, fileError))
+                ExitWithMessage(fileError + "。macOS 首次使用时请允许访问桌面文件夹。");
+            return;
         }
-
-        std::ifstream input(inputPath);
-        if (!input)
-            ExitWithMessage("无法读取桌面上的 userdata.txt。");
 
         std::string account;
         std::string password;
-        std::getline(input, account);
-        std::getline(input, password);
-        if (!account.empty() && account.back() == '\r') account.pop_back();
-        if (!password.empty() && password.back() == '\r') password.pop_back();
-        if (account.empty() || password.empty() || account.front() == '(' || password.front() == '(')
-            ExitWithMessage("userdata.txt 的前两行必须分别填写校园卡号和密码，不能保留提示文本。");
+        std::string fileError;
+        if (!UserData::ReadCredentials(inputPath, account, password, fileError))
+            ExitWithMessage(fileError + "。");
 
         const std::string encryptedAccount = EncryptStr(account);
         const std::string encryptedPassword = EncryptStr(password);
@@ -143,7 +135,10 @@ namespace
         }
         if (error)
             ExitWithMessage("保存配置文件失败：" + error.message());
-        fs::remove(inputPath, error);
+        std::string removeError;
+        if (!UserData::RemoveFile(inputPath, removeError))
+            AppUI::ShowMessage(removeError +
+                "。请关闭正在占用该文件的程序后手动删除。", "提示");
         RunMainLoop();
     }
 }

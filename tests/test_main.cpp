@@ -3,6 +3,7 @@
 #include "platform_support.h"
 #include "runtime.h"
 #include "sys.h"
+#include "user_data.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -87,6 +88,35 @@ namespace
         Check(DecryptStr(tampered).empty(), "tampered credential is rejected");
     }
 
+    void TestUserDataFileLifecycle(const fs::path& root)
+    {
+        const fs::path userDataPath = root / "userdata.txt";
+        std::string error;
+        Check(UserData::CreateTemplate(userDataPath, error),
+            "userdata template creation");
+        const std::string templateBody = ReadAll(userDataPath);
+        Check(templateBody.find("校园卡号") != std::string::npos &&
+              templateBody.find("统一身份认证平台密码") != std::string::npos,
+            "userdata template is flushed before create returns");
+
+        std::string account;
+        std::string password;
+        Check(!UserData::ReadCredentials(userDataPath, account, password, error),
+            "userdata template is rejected as credentials");
+
+        {
+            std::ofstream output(userDataPath, std::ios::trunc);
+            output << "2026123456\r\npassword-with-symbols&+#\r\n";
+        }
+        Check(UserData::ReadCredentials(userDataPath, account, password, error),
+            "userdata credentials can be read");
+        Check(account == "2026123456" && password == "password-with-symbols&+#",
+            "userdata CRLF is normalized");
+        Check(UserData::RemoveFile(userDataPath, error),
+            "userdata can be deleted after reading");
+        Check(!fs::exists(userDataPath),
+            "userdata is absent after deletion");
+    }
     void TestPathsAndLogging(const fs::path& root)
     {
         const fs::path dataRoot = root / "data";
@@ -211,6 +241,7 @@ int main()
     try
     {
         TestEncryption();
+        TestUserDataFileLifecycle(root);
         TestPathsAndLogging(root);
 #ifdef __APPLE__
         const fs::path launchAgentRoot = root / "LaunchAgents";
