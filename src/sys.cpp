@@ -265,7 +265,7 @@ namespace
         std::vector<char> buffer(size);
         if (_NSGetExecutablePath(buffer.data(), &size) != 0)
         {
-            buffer.assign(static_cast<size_t>(size) + 1, \0);
+            buffer.assign(static_cast<size_t>(size) + 1, '\0');
             if (_NSGetExecutablePath(buffer.data(), &size) != 0)
                 return {};
         }
