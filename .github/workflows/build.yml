@@ -1,0 +1,66 @@
+name: cross-platform-build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          release: false
+          install: >-
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-nlohmann-json
+      - name: Configure
+        shell: msys2 {0}
+        run: cmake -S . -B build-ci -G Ninja -DCMAKE_BUILD_TYPE=Release -DAUTOSZUWEB_BUILD_TESTS=ON
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build-ci --parallel
+      - name: Test
+        shell: msys2 {0}
+        run: ctest --test-dir build-ci --output-on-failure
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoSZUWeb-Windows
+          path: build-ci/AutoSZUWeb.exe
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: brew install cmake curl openssl@3 nlohmann-json
+      - name: Configure
+        run: >-
+          cmake -S . -B build-ci -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DAUTOSZUWEB_BUILD_TESTS=ON
+          -DCMAKE_PREFIX_PATH="$(brew --prefix curl);$(brew --prefix openssl@3);$(brew --prefix nlohmann-json)"
+      - name: Build
+        run: cmake --build build-ci --parallel
+      - name: Test
+        env:
+          AUTOSZUWEB_LAUNCH_AGENT_DIR: ${{ runner.temp }}/LaunchAgents
+        run: ctest --test-dir build-ci --output-on-failure
+      - name: Verify app bundle
+        run: |
+          test -x build-ci/AutoSZUWeb.app/Contents/MacOS/AutoSZUWeb
+          plutil -lint build-ci/AutoSZUWeb.app/Contents/Info.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' build-ci/AutoSZUWeb.app/Contents/Info.plist)" = "true"
+      - name: Upload unsigned app
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoSZUWeb-macOS-unsigned
+          path: build-ci/AutoSZUWeb.app

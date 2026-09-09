@@ -1,6 +1,6 @@
 # AutoSZUWeb macOS 移植方案
 
-> 状态:已确认方案,待实施
+> 状态：已实施（2026-09-09）；完整验证步骤见 `docs/testing.md`
 > 适用范围:将当前 Windows 平台实现(C++17 / MinGW / Win32 API)移植为 macOS 实现
 
 ---
@@ -73,11 +73,11 @@ Info.plist            # ★新增:macOS .app 配置(LSUIElement 后台态)
 新增跨平台 UI 函数声明(替代 Windows `MessageBoxW`):
 
 ```cpp
-namespace UI
+namespace AppUI
 {
     enum class Button { Ok, Cancel };
     // 返回 Cancel 仅当用户点取消(供 newuser 的 MB_OKCANCEL 分支使用)
-    Button MessageBox(const std::string& text,
+    Button ShowMessage(const std::string& text,
                       const std::string& title = "提示",
                       bool allowCancel = false);
 }
@@ -166,11 +166,11 @@ if (FirstBoot)
     std::string title = "提示";
     if (ok)
     {
-        UI::MessageBox(okMsg, title);
+        AppUI::ShowMessage(okMsg, title);
     }
     else
     {
-        UI::MessageBox("教学区认证失败: " + srunMsg + "\n宿舍区认证失败: " + dormMsg, title);
+        AppUI::ShowMessage("教学区认证失败: " + srunMsg + "\n宿舍区认证失败: " + dormMsg, title);
     }
 }
 ```
@@ -282,12 +282,12 @@ mac 分支目录为固定 `$HOME` 相对布局,纯 C++ 即可,不需 Foundation:
 
 ### 4.8 新增 src/mac_ui.mm(唯一 Obj-C++ 文件)
 
-实现 `UI::MessageBox`,约 30 行,无 ARC(@autoreleasepool 手管):
+实现 `AppUI::ShowMessage`,约 30 行,无 ARC(@autoreleasepool 手管):
 
 ```objc
 #import <AppKit/AppKit.h>
 
-UI::Button UI::MessageBox(const std::string& text,
+AppUI::Button AppUI::ShowMessage(const std::string& text,
                           const std::string& title, bool allowCancel)
 {
     @autoreleasepool
@@ -306,7 +306,7 @@ UI::Button UI::MessageBox(const std::string& text,
         NSModalResponse r = [alert runModal];            // runModal 自带模态事件循环
 
         return (allowCancel && r == NSAlertSecondButtonReturn)
-             ? UI::Button::Cancel : UI::Button::Ok;
+             ? AppUI::Button::Cancel : AppUI::Button::Ok;
     }
 }
 ```
@@ -317,20 +317,21 @@ Windows 端同函数实现放 sys.cpp 或独立 `.cpp`(UTF-8→宽→`MessageBox
 
 **逻辑零改动,只换 4 处 UI 调用 + 1 处休眠:**
 
-- 引入 `UI::MessageBox`,替换 4 个 `MessageBoxW`(现 58、66、87、100 行),宽字面量 `L"..."` 改为 UTF-8 窄字面量 `"..."`。
+- 引入 `AppUI::ShowMessage`,替换 4 个 `MessageBoxW`(现 58、66、87、100 行),宽字面量 `L"..."` 改为 UTF-8 窄字面量 `"..."`。
 - 第 87 行的 `MB_OKCANCEL` 分支(现 90–93 行)映射:
 
 ```cpp
-if (UI::MessageBox("请打开桌面上的userdata.txt文件,并按照文件内提示写入"
+if (AppUI::ShowMessage("请打开桌面上的userdata.txt文件,并按照文件内提示写入"
                    "校园卡号和统一身份认证平台密码,并重新启动本程序。",
-                   "提示", true) == UI::Button::Cancel)
+                   "提示", true) == AppUI::Button::Cancel)
 {
     std::exit(0);
 }
 ```
 
 - 第 47 行 `Sleep(1000 * 10)` → `std::this_thread::sleep_for(std::chrono::milliseconds(10000))`(Windows 同样适用)。补 `#include <thread>` / `<chrono>`。
-- `main()` / `mainwork()` / `newuser()` 流程、`fs::path`、`std::remove` 跨平台,不动。
+- `main()` / `mainwork()` /
+ewuser()` 流程、`fs::path`、`std::remove` 跨平台,不动。
 
 ### 4.10 CMakeLists.txt
 
@@ -384,11 +385,13 @@ NSHighResolutionCapable → true
 macOS(Catalina 起)对非沙盒应用访问 `~/Desktop` 也会弹"允许访问桌面文件夹"授权。首次配置流程恰恰在桌面写/读 userdata.txt,第一次运行就会触发系统授权框。规避方案二选一:
 
 - 接受一次性授权弹窗(最简单);或
-- 将 userdata.txt 模板改写到 `$HOME/AutoSZUWeb_userdata.txt`(home 根目录不受 TCC 保护),改动仅在 `newuser()` 的路径选择上。
+- 将 userdata.txt 模板改写到 `$HOME/AutoSZUWeb_userdata.txt`(home 根目录不受 TCC 保护),改动仅在
+ewuser()` 的路径选择上。
 
 ### 5.2 AppKit 主线程
 
-mac 上所有 UI 调用必须在主线程。当前单线程模型天然满足(`mainwork` / `newuser` 在主线程),但若将来把登录挪到工作线程,NSAlert 会崩,需 `dispatch_async(dispatch_get_main_queue(), ...)`。移植时保持现状即可。
+mac 上所有 UI 调用必须在主线程。当前单线程模型天然满足(`mainwork` /
+ewuser` 在主线程),但若将来把登录挪到工作线程,NSAlert 会崩,需 `dispatch_async(dispatch_get_main_queue(), ...)`。移植时保持现状即可。
 
 ### 5.3 启动方式决定弹窗能否显示
 
@@ -430,7 +433,7 @@ mac 上所有 UI 调用必须在主线程。当前单线程模型天然满足(`m
 
 | 函数 | 桩实现 |
 |---|---|
-| `UI::MessageBox` | 打印到 stdout,默认返回 `Ok`;测试可用注入的脚本化应答覆盖返回 `Cancel` |
+| `AppUI::ShowMessage` | 打印到 stdout,默认返回 `Ok`;测试可用注入的脚本化应答覆盖返回 `Cancel` |
 | `EncryptStr` / `DecryptStr` | 固定测试密钥 + OpenSSL AES,或明文加平台标记——只用于本地回归,验证加解密往返一致性,不代表 Keychain 语义 |
 | `SetAutoStart` | 打印将写入的 plist 路径后 no-op |
 | `WriteAuthLog` 时间 | 无需桩——`localtime_r` 本就是 POSIX,与 mac 分支共用 |
@@ -491,7 +494,7 @@ jobs:
 
 1. **CMakeLists / Info.plist / 目录结构**:先让空壳 .app 能在 mac 上构建运行,建立工具链基线。
 2. **file_path.cpp + web.cpp socket 层**:纯替换,风险最低,先打通。
-3. **AutoSZUWeb.cpp + UI 替换**:接入 `UI::MessageBox`,去掉 `L""`。
+3. **AutoSZUWeb.cpp + UI 替换**:接入 `AppUI::ShowMessage`,去掉 `L""`。
 4. **mac_ui.mm**:落地 NSAlert。
 5. **sys.cpp 时间 + WriteAuthLog**:验证日志落盘。
 6. **sys.cpp Keychain 加解密**:替换 DPAPI,验证账号配置读写。

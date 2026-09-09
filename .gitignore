@@ -1,6 +1,5 @@
 .vscode
 *.o
 *.exe
-*.sh
 .claude/
 build/

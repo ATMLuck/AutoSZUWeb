@@ -1,232 +1,156 @@
-#include "curl/curl.h"
+#include "app_ui.h"
+#include "web.h"
 #include "srun.h"
 #include "sys.h"
+
+#include <curl/curl.h>
 #include <nlohmann/json.hpp>
-#include <winsock2.h>
-#include <windows.h>
-#include <ws2tcpip.h>
+
 #include <string>
-#include <iostream>
 
-extern bool FirstBoot;
-const std::string LOGIN_URL_BASE = "http://172.30.255.42:801/eportal/portal/login";
-
-// curl 写回调 —— 将响应数据追加到 string
-static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
-{
-    ((std::string*)userp)->append((char*)contents, size * nmemb);
-    return size * nmemb;
-}
-
-// 获取本机当前网络 IP (UDP 连接不实际发包, 仅取路由出接口地址)
-static std::string GetLocalIp()
-{
-    SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock == INVALID_SOCKET)
-        return "";
-
-    sockaddr_in remote{};
-    remote.sin_family = AF_INET;
-    remote.sin_port = htons(53);
-    inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr);
-
-    std::string ip;
-    if (connect(sock, (sockaddr*)&remote, sizeof(remote)) == 0)
-    {
-        sockaddr_in local{};
-        int len = sizeof(local);
-        if (getsockname(sock, (sockaddr*)&local, &len) == 0)
-        {
-            char buf[INET_ADDRSTRLEN] = {};
-            inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf));
-            if (std::string(buf) != "0.0.0.0")
-                ip = buf;
-        }
-    }
-    closesocket(sock);
-    return ip;
-}
-
-// UTF-8 → 宽字符, 供 MessageBoxW 使用
-static std::wstring Utf8ToWide(const std::string& text)
-{
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, NULL, 0);
-    std::wstring wmsg(wlen, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &wmsg[0], wlen);
-    return wmsg;
-}
-
-// 宿舍区 ePortal 认证, 成功返回 true, 失败填充 message (不弹窗)
-static bool LoginDormitory(const std::string& Account, const std::string& Password,
-                           std::string& message, std::string& note)
-{
-    CURL* curl = curl_easy_init();
-    if (!curl)
-    {
-        message = "curl 初始化失败";
-        return false;
-    }
-
-    std::string FullUrl = LOGIN_URL_BASE
-        + "?user_account=%2C0%2C" + Account
-        + "&user_password=" + Password;
-
-    std::string responseBody;
-    curl_easy_setopt(curl, CURLOPT_URL, FullUrl.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 12L);
-
-    CURLcode res = curl_easy_perform(curl);
-    bool success = false;
-
-    if (res != CURLE_OK)
-    {
-        message = "宿舍区请求失败: " + std::string(curl_easy_strerror(res));
-    }
-    else
-    {
-        // 剥离 jsonpReturn( ... ) 外层, 取内层纯 JSON
-        size_t start = responseBody.find('(');
-        size_t end   = responseBody.rfind(')');
-        if (start != std::string::npos && end != std::string::npos && end > start)
-        {
-            try {
-                nlohmann::json resp = nlohmann::json::parse(responseBody.substr(start + 1, end - start - 1));
-                int result = resp.value("result", 1);
-                std::string msg = resp.value("msg", "");
-                // 成功判据: result==0, 或服务器返回"认证成功"文案
-                // (账号已在线/重复认证时 Dr.COM 常回非0 result 但 msg 仍为成功文案)
-                bool resultOk = (result == 0);
-                bool msgOk = msg.find("认证成功") != std::string::npos;
-                success = resultOk || msgOk;
-                if (success && !resultOk)
-                    note = "服务器回 result=" + std::to_string(result)
-                        + "原始响应: \n" + responseBody;
-                message = msg.empty() ? (success ? "宿舍区认证成功" : "宿舍区认证失败") : msg;
-            }
-            catch (const std::exception&)
-            {
-                message = "宿舍区响应 JSON 解析失败";
-            }
-        }
-        else
-        {
-            message = responseBody;
-        }
-    }
-    curl_easy_cleanup(curl);
-    return success;
-}
-
-// 认证入口: 教学/办公区(SRun)优先, 失败自动回退宿舍区(ePortal)
-bool Login(std::string Account, std::string Password)
-{
-    curl_global_init(CURL_GLOBAL_ALL);
-
-    std::string srunMsg, dormMsg, method, okMsg, logNote;
-    bool ok = SrunLogin(Account, Password, srunMsg);
-    if (ok)
-    {
-        method = "SRun(教学区)";
-        okMsg = srunMsg;
-    }
-    else
-    {
-        ok = LoginDormitory(Account, Password, dormMsg, logNote);
-        method = ok ? "ePortal(宿舍区)" : "SRun→ePortal";
-        if (ok)
-            okMsg = dormMsg;
-    }
-
-    // 认证日志: 成功记设备IP(可带详情), 失败记失败原因
-    std::string logReason;
-    if (!ok)
-        logReason = "教学区: " + (srunMsg.empty() ? std::string("无") : srunMsg)
-            + "; 宿舍区: " + (dormMsg.empty() ? std::string("无") : dormMsg);
-    WriteAuthLog(method, ok, ok ? GetLocalIp() : "", ok ? logNote : logReason);
-
-    if (FirstBoot)
-    {
-        // 弹窗只显示实际成功的那条消息, 避免把失败方式的文案当结果展示
-        if (ok)
-            MessageBoxW(NULL, Utf8ToWide(okMsg).c_str(), L"提示", MB_OK);
-        else
-            MessageBoxW(NULL, Utf8ToWide(
-                "教学区认证失败: " + (srunMsg.empty() ? std::string("无") : srunMsg)
-                + "\n宿舍区认证失败: " + (dormMsg.empty() ? std::string("无") : dormMsg)
-            ).c_str(), L"提示", MB_OK);
-    }
-
-    curl_global_cleanup();
-    return ok;
-}
+bool IsFirstBoot();
 
 namespace
 {
-    struct Probe { const char* ip; int port; };
-    // 默认探测端点: 国内公共 DNS 优先 (TCP 53), Google 兜底
-    const Probe kDefaultProbes[] = {
-        { "119.29.29.29", 53 },   // DNSPod
-        { "223.5.5.5",    53 },   // AliDNS
-        { "114.114.114.114", 53 },// 114DNS
-        { "8.8.8.8",      53 },   // Google
-    };
+    const std::string kLoginUrlBase =
+        "http://172.30.255.42:801/eportal/portal/login";
 
-    // 探测单个目标: 非阻塞 connect + select 超时, 成功返回 true
-    bool ProbeTcp(const char* ip, int port, int timeoutMs)
+    size_t WriteCallback(void* contents, size_t size, size_t count, void* userData)
     {
-        SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        if (sock == INVALID_SOCKET)
-            return false;
+        static_cast<std::string*>(userData)->append(
+            static_cast<char*>(contents), size * count);
+        return size * count;
+    }
 
-        u_long mode = 1;
-        ioctlsocket(sock, FIONBIO, &mode);
-
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_port   = htons(port);
-        inet_pton(AF_INET, ip, &addr.sin_addr);
-
-        connect(sock, (sockaddr*)&addr, sizeof(addr));
-
-        fd_set fd;
-        FD_ZERO(&fd);
-        FD_SET(sock, &fd);
-        timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
-
-        bool ok = false;
-        if (select(0, nullptr, &fd, nullptr, &tv) > 0)
+    bool LoginDormitory(const std::string& account, const std::string& password,
+                        std::string& message, std::string& note)
+    {
+        CURL* curl = curl_easy_init();
+        if (!curl)
         {
-            // select 可写 ≠ 已连接: 读真实错误码, 拒绝/重置不计为在线
-            int err = 0;
-            int len = sizeof(err);
-            getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&err, &len);
-            ok = (err == 0);
+            message = "curl 初始化失败";
+            return false;
         }
 
-        closesocket(sock);
-        return ok;
+        char* escapedAccount = curl_easy_escape(curl, account.c_str(),
+            static_cast<int>(account.size()));
+        char* escapedPassword = curl_easy_escape(curl, password.c_str(),
+            static_cast<int>(password.size()));
+        if (!escapedAccount || !escapedPassword)
+        {
+            if (escapedAccount) curl_free(escapedAccount);
+            if (escapedPassword) curl_free(escapedPassword);
+            curl_easy_cleanup(curl);
+            message = "宿舍区请求参数编码失败";
+            return false;
+        }
+
+        const std::string fullUrl = kLoginUrlBase
+            + "?user_account=%2C0%2C" + escapedAccount
+            + "&user_password=" + escapedPassword;
+        curl_free(escapedAccount);
+        curl_free(escapedPassword);
+
+        std::string responseBody;
+        curl_easy_setopt(curl, CURLOPT_URL, fullUrl.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 12L);
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+
+        const CURLcode result = curl_easy_perform(curl);
+        bool success = false;
+        if (result != CURLE_OK)
+        {
+            message = "宿舍区请求失败: " + std::string(curl_easy_strerror(result));
+        }
+        else
+        {
+            const size_t start = responseBody.find('(');
+            const size_t end = responseBody.rfind(')');
+            if (start != std::string::npos && end != std::string::npos && end > start)
+            {
+                try
+                {
+                    nlohmann::json response = nlohmann::json::parse(
+                        responseBody.substr(start + 1, end - start - 1));
+                    const int responseResult = response.value("result", 1);
+                    const std::string responseMessage = response.value("msg", "");
+                    const bool resultOk = responseResult == 0;
+                    const bool messageOk =
+                        responseMessage.find("认证成功") != std::string::npos;
+                    success = resultOk || messageOk;
+                    if (success && !resultOk)
+                        note = "服务器回 result=" + std::to_string(responseResult)
+                            + " 原始响应: " + responseBody;
+                    message = responseMessage.empty()
+                        ? (success ? "宿舍区认证成功" : "宿舍区认证失败")
+                        : responseMessage;
+                }
+                catch (const std::exception&)
+                {
+                    message = "宿舍区响应 JSON 解析失败";
+                }
+            }
+            else
+            {
+                message = responseBody.empty() ? "宿舍区返回空响应" : responseBody;
+            }
+        }
+
+        curl_easy_cleanup(curl);
+        return success;
     }
 }
 
-// 网络连通性检测: 遍历内置端点, 任一 TCP 可达即认为外网在线
-bool NetworkCheck(int timeoutMs)
+bool Login(const std::string& account, const std::string& password)
 {
-    WSADATA wsa;
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
-        return false;
-
-    bool ok = false;
-    for (const auto& p : kDefaultProbes)
+    static const bool curlInitialized = curl_global_init(CURL_GLOBAL_ALL) == CURLE_OK;
+    if (!curlInitialized)
     {
-        if (ProbeTcp(p.ip, p.port, timeoutMs))
-        {
-            ok = true;
-            break;
-        }
+        if (IsFirstBoot())
+            AppUI::ShowMessage("curl 全局初始化失败");
+        WriteAuthLog("初始化", false, "", "curl 全局初始化失败");
+        return false;
     }
-    WSACleanup();
+
+    std::string srunMessage;
+    std::string dormitoryMessage;
+    std::string method;
+    std::string successMessage;
+    std::string logNote;
+
+    bool ok = SrunLogin(account, password, srunMessage);
+    if (ok)
+    {
+        method = "SRun(教学区)";
+        successMessage = srunMessage;
+    }
+    else
+    {
+        ok = LoginDormitory(account, password, dormitoryMessage, logNote);
+        method = ok ? "ePortal(宿舍区)" : "SRun→ePortal";
+        if (ok)
+            successMessage = dormitoryMessage;
+    }
+
+    std::string logReason;
+    if (!ok)
+        logReason = "教学区: " + (srunMessage.empty() ? "无" : srunMessage)
+            + "; 宿舍区: " + (dormitoryMessage.empty() ? "无" : dormitoryMessage);
+    WriteAuthLog(method, ok, ok ? GetLocalIp() : "", ok ? logNote : logReason);
+
+    if (IsFirstBoot())
+    {
+        if (ok)
+            AppUI::ShowMessage(successMessage, "提示");
+        else
+            AppUI::ShowMessage(
+                "教学区认证失败: " + (srunMessage.empty() ? "无" : srunMessage)
+                + "\n宿舍区认证失败: "
+                + (dormitoryMessage.empty() ? "无" : dormitoryMessage),
+                "提示");
+    }
     return ok;
 }
