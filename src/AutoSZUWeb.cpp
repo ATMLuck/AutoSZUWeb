@@ -106,7 +106,11 @@ namespace
         const std::string encryptedAccount = EncryptStr(account);
         const std::string encryptedPassword = EncryptStr(password);
         if (encryptedAccount.empty() || encryptedPassword.empty())
-            ExitWithMessage("系统凭据保护失败，未保存账号密码。");
+        {
+            const std::string detail = GetCredentialError();
+            ExitWithMessage("系统凭据保护失败，未保存账号密码。"
+                + (detail.empty() ? std::string{} : "\n" + detail));
+        }
 
         const fs::path configPath = GetConfigPath();
         if (configPath.empty())

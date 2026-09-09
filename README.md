@@ -16,7 +16,7 @@ AutoSZUWeb 是深圳大学校园网后台自动认证工具。配置账号后，
 | 平台 | 状态 | 凭据保护 | 自启动 |
 |---|---|---|---|
 | Windows | 支持 | Windows DPAPI | 自复制到 `%APPDATA%` 并写入当前用户 Run 注册表 |
-| macOS 11+ | 支持源码构建 | Keychain 保存设备密钥 + AES-256-GCM | 用户级 LaunchAgent |
+| macOS 11+ | 支持源码构建 | 用户登录钥匙串保存随机密钥 + AES-256-GCM | 用户级 LaunchAgent |
 
 macOS 开发构建会生成后台 `.app`（`LSUIElement=true`，无 Dock 图标）。公开分发前仍需完成 Homebrew 动态依赖封装、Developer ID 签名和 Apple 公证，详见 [测试与发布方案](docs/testing.md)。
 
@@ -102,8 +102,8 @@ build/macos/AutoSZUWeb.app
 ## 安全说明
 
 - Windows 使用 DPAPI，密文绑定当前 Windows 用户；
-- macOS 使用 Keychain 保存 256 位设备密钥，配置密文采用随机 IV 的 AES-256-GCM；
-- macOS Keychain 项设置为 `AfterFirstUnlockThisDeviceOnly` 且不参与 iCloud 同步；
+- macOS 使用当前用户登录钥匙串保存 256 位随机密钥，配置密文采用随机 IV 的 AES-256-GCM；
+- macOS 密钥保存在当前用户登录钥匙串中；正式分发版应完成应用签名，并在真机上复核钥匙串访问控制；
 - ePortal 密码参数会进行 URL 编码；
 - 凭据不会上传到第三方，但校园认证请求本身按照校园网协议发送给校内认证服务器；
 - 与当前用户处于同一安全上下文的恶意程序仍可能调用平台凭据 API，应保证设备安全。

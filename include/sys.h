@@ -9,6 +9,9 @@ void SetAutoStart();
 std::string EncryptStr(const std::string& plaintext);
 std::string DecryptStr(const std::string& ciphertext);
 
+// 返回最近一次凭据保护失败原因；成功操作后为空。
+std::string GetCredentialError();
+
 // 认证日志：按天追加到应用数据目录的 logs 子目录。
 void WriteAuthLog(const std::string& method, bool success,
                   const std::string& deviceIp, const std::string& message);

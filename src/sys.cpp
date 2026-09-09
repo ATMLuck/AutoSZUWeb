@@ -39,9 +39,17 @@ namespace
     constexpr size_t kAesKeySize = 32;
     constexpr size_t kGcmIvSize = 12;
     constexpr size_t kGcmTagSize = 16;
+    thread_local std::string gCredentialError;
 #ifdef __APPLE__
     const char* kMacKeychainService = "com.autoszuweb.AutoSZUWeb";
     const char* kMacKeychainAccount = "credential-encryption-key";
+
+    const char* MacKeychainService()
+    {
+        const char* overrideService = std::getenv("AUTOSZUWEB_KEYCHAIN_SERVICE");
+        return (overrideService && *overrideService)
+            ? overrideService : kMacKeychainService;
+    }
 #endif
 
     std::string Base64Encode(const unsigned char* data, size_t length)
@@ -73,62 +81,110 @@ namespace
     }
 
 #if defined(__APPLE__) || (defined(__linux__) && defined(AUTOSZUWEB_LINUX_TEST))
+#ifdef __APPLE__
+    std::string MacStatusMessage(OSStatus status)
+    {
+        CFStringRef description = SecCopyErrorMessageString(status, nullptr);
+        if (!description)
+            return "OSStatus=" + std::to_string(status);
+
+        char buffer[512] = {};
+        const bool converted = CFStringGetCString(description, buffer,
+            sizeof(buffer), kCFStringEncodingUTF8);
+        CFRelease(description);
+        return converted
+            ? std::string(buffer) + " (OSStatus=" + std::to_string(status) + ")"
+            : "OSStatus=" + std::to_string(status);
+    }
+
+    std::vector<unsigned char> ReadMacKeychainKey(OSStatus& status)
+    {
+        CFStringRef service = CFStringCreateWithCString(nullptr,
+            MacKeychainService(), kCFStringEncodingUTF8);
+        CFStringRef account = CFStringCreateWithCString(nullptr,
+            kMacKeychainAccount, kCFStringEncodingUTF8);
+        const void* keys[] = {
+            kSecClass, kSecAttrService, kSecAttrAccount,
+            kSecReturnData, kSecMatchLimit
+        };
+        const void* values[] = {
+            kSecClassGenericPassword, service, account,
+            kCFBooleanTrue, kSecMatchLimitOne
+        };
+        CFDictionaryRef query = CFDictionaryCreate(nullptr, keys, values, 5,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFTypeRef result = nullptr;
+        status = SecItemCopyMatching(query, &result);
+        CFRelease(query);
+        CFRelease(service);
+        CFRelease(account);
+
+        if (status != errSecSuccess)
+        {
+            if (result)
+                CFRelease(result);
+            return {};
+        }
+        if (!result || CFGetTypeID(result) != CFDataGetTypeID())
+        {
+            if (result)
+                CFRelease(result);
+            status = errSecDecode;
+            return {};
+        }
+
+        CFDataRef data = static_cast<CFDataRef>(result);
+        std::vector<unsigned char> key(CFDataGetBytePtr(data),
+            CFDataGetBytePtr(data) + CFDataGetLength(data));
+        CFRelease(result);
+        if (key.size() != kAesKeySize)
+        {
+            status = errSecDecode;
+            return {};
+        }
+        return key;
+    }
+#endif
+
     std::vector<unsigned char> PlatformEncryptionKey()
     {
 #ifdef __APPLE__
-        const void* keys[] = {
-            kSecClass, kSecAttrService, kSecAttrAccount,
-            kSecUseDataProtectionKeychain, kSecReturnData, kSecMatchLimit
-        };
-        const void* values[] = {
-            kSecClassGenericPassword,
-            CFStringCreateWithCString(nullptr, kMacKeychainService, kCFStringEncodingUTF8),
-            CFStringCreateWithCString(nullptr, kMacKeychainAccount, kCFStringEncodingUTF8),
-            kCFBooleanTrue, kCFBooleanTrue, kSecMatchLimitOne
-        };
-        CFDictionaryRef query = CFDictionaryCreate(nullptr, keys, values, 6,
-            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-        CFTypeRef result = nullptr;
-        OSStatus status = SecItemCopyMatching(query, &result);
-        CFRelease(query);
-        CFRelease(values[1]);
-        CFRelease(values[2]);
-
-        if (status == errSecSuccess && result)
+        OSStatus status = errSecSuccess;
+        std::vector<unsigned char> existingKey = ReadMacKeychainKey(status);
+        if (!existingKey.empty())
         {
-            CFDataRef data = static_cast<CFDataRef>(result);
-            std::vector<unsigned char> key(CFDataGetBytePtr(data),
-                CFDataGetBytePtr(data) + CFDataGetLength(data));
-            CFRelease(result);
-            if (key.size() == kAesKeySize)
-                return key;
-        }
-        else if (result)
-        {
-            CFRelease(result);
+            gCredentialError.clear();
+            return existingKey;
         }
         if (status != errSecItemNotFound)
+        {
+            gCredentialError = "读取 macOS 登录钥匙串失败：" + MacStatusMessage(status);
             return {};
+        }
 
         std::vector<unsigned char> key(kAesKeySize);
-        if (SecRandomCopyBytes(kSecRandomDefault, key.size(), key.data()) != errSecSuccess)
+        status = SecRandomCopyBytes(kSecRandomDefault, key.size(), key.data());
+        if (status != errSecSuccess)
+        {
+            gCredentialError = "生成 macOS 凭据密钥失败：" + MacStatusMessage(status);
             return {};
+        }
 
-        CFDataRef keyData = CFDataCreate(nullptr, key.data(), key.size());
-        const void* addKeys[] = {
-            kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData,
-            kSecUseDataProtectionKeychain, kSecAttrAccessible, kSecAttrSynchronizable
-        };
         CFStringRef service = CFStringCreateWithCString(nullptr,
-            kMacKeychainService, kCFStringEncodingUTF8);
+            MacKeychainService(), kCFStringEncodingUTF8);
         CFStringRef account = CFStringCreateWithCString(nullptr,
             kMacKeychainAccount, kCFStringEncodingUTF8);
-        const void* addValues[] = {
-            kSecClassGenericPassword, service, account, keyData,
-            kCFBooleanTrue, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, kCFBooleanFalse
+        CFDataRef keyData = CFDataCreate(nullptr, key.data(), key.size());
+        const void* addKeys[] = {
+            kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData
         };
-        CFDictionaryRef addQuery = CFDictionaryCreate(nullptr, addKeys, addValues, 7,
-            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        const void* addValues[] = {
+            kSecClassGenericPassword, service, account, keyData
+        };
+        CFDictionaryRef addQuery = CFDictionaryCreate(nullptr,
+            addKeys, addValues, 4,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks);
         status = SecItemAdd(addQuery, nullptr);
         CFRelease(addQuery);
         CFRelease(service);
@@ -137,10 +193,21 @@ namespace
 
         if (status == errSecDuplicateItem)
         {
-            std::vector<unsigned char> existingKey = PlatformEncryptionKey();
-            return existingKey;
+            existingKey = ReadMacKeychainKey(status);
+            if (!existingKey.empty())
+            {
+                gCredentialError.clear();
+                return existingKey;
+            }
         }
-        return status == errSecSuccess ? key : std::vector<unsigned char>{};
+        if (status != errSecSuccess)
+        {
+            gCredentialError = "写入 macOS 登录钥匙串失败：" + MacStatusMessage(status);
+            return {};
+        }
+
+        gCredentialError.clear();
+        return key;
 #else
         // Linux 仅用于 CI/开发期逻辑测试，不用于发布或真实凭据保护。
         constexpr std::array<unsigned char, kAesKeySize> kTestKey = {
@@ -149,6 +216,7 @@ namespace
             0x2d,0x54,0x65,0x73,0x74,0x2d,0x4b,0x65,
             0x79,0x2d,0x30,0x30,0x30,0x30,0x30,0x31
         };
+        gCredentialError.clear();
         return {kTestKey.begin(), kTestKey.end()};
 #endif
     }
@@ -161,11 +229,17 @@ namespace
 
         std::vector<unsigned char> iv(kGcmIvSize);
         if (RAND_bytes(iv.data(), static_cast<int>(iv.size())) != 1)
+        {
+            gCredentialError = "生成 AES-GCM 随机 IV 失败";
             return {};
+        }
 
         EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
         if (!context)
+        {
+            gCredentialError = "创建 AES-GCM 加密上下文失败";
             return {};
+        }
 
         std::vector<unsigned char> ciphertext(plaintext.size() + EVP_MAX_BLOCK_LENGTH);
         int length = 0;
@@ -189,7 +263,10 @@ namespace
                 static_cast<int>(tag.size()), tag.data()) == 1;
         EVP_CIPHER_CTX_free(context);
         if (!ok)
+        {
+            gCredentialError = "AES-256-GCM 加密失败";
             return {};
+        }
 
         ciphertext.resize(static_cast<size_t>(totalLength));
         std::vector<unsigned char> payload;
@@ -197,16 +274,29 @@ namespace
         payload.insert(payload.end(), iv.begin(), iv.end());
         payload.insert(payload.end(), ciphertext.begin(), ciphertext.end());
         payload.insert(payload.end(), tag.begin(), tag.end());
-        return "v1:" + Base64Encode(payload.data(), payload.size());
+        const std::string encoded = Base64Encode(payload.data(), payload.size());
+        if (encoded.empty())
+        {
+            gCredentialError = "AES-GCM 密文 Base64 编码失败";
+            return {};
+        }
+        gCredentialError.clear();
+        return "v1:" + encoded;
     }
 
     std::string DecryptAesGcm(const std::string& encoded)
     {
         if (encoded.rfind("v1:", 0) != 0)
+        {
+            gCredentialError = "凭据密文版本不受支持";
             return {};
+        }
         std::vector<unsigned char> payload = Base64Decode(encoded.substr(3));
         if (payload.size() < kGcmIvSize + kGcmTagSize)
+        {
+            gCredentialError = "凭据密文格式无效";
             return {};
+        }
 
         std::vector<unsigned char> key = PlatformEncryptionKey();
         if (key.size() != kAesKeySize)
@@ -219,7 +309,10 @@ namespace
 
         EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
         if (!context)
+        {
+            gCredentialError = "创建 AES-GCM 解密上下文失败";
             return {};
+        }
         std::vector<unsigned char> plaintext(ciphertextLength + EVP_MAX_BLOCK_LENGTH);
         int length = 0;
         int totalLength = 0;
@@ -239,7 +332,11 @@ namespace
         totalLength += length;
         EVP_CIPHER_CTX_free(context);
         if (!ok)
+        {
+            gCredentialError = "AES-GCM 认证失败，凭据可能已损坏或被篡改";
             return {};
+        }
+        gCredentialError.clear();
         return std::string(reinterpret_cast<char*>(plaintext.data()), totalLength);
     }
 #endif
@@ -404,9 +501,13 @@ std::string EncryptStr(const std::string& plaintext)
     input.cbData = static_cast<DWORD>(plaintext.size());
     DATA_BLOB output{};
     if (!CryptProtectData(&input, L"AutoSZUWeb", nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output))
+    {
+        gCredentialError = "Windows DPAPI 加密失败，错误码=" + std::to_string(GetLastError());
         return {};
+    }
     std::string encoded = Base64Encode(output.pbData, output.cbData);
     LocalFree(output.pbData);
+    gCredentialError.clear();
     return encoded;
 #else
     return EncryptAesGcm(plaintext);
@@ -418,19 +519,31 @@ std::string DecryptStr(const std::string& ciphertext)
 #ifdef _WIN32
     std::vector<unsigned char> decoded = Base64Decode(ciphertext);
     if (decoded.empty())
+    {
+        gCredentialError = "Windows DPAPI 密文 Base64 格式无效";
         return {};
+    }
     DATA_BLOB input{};
     input.pbData = decoded.data();
     input.cbData = static_cast<DWORD>(decoded.size());
     DATA_BLOB output{};
     if (!CryptUnprotectData(&input, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output))
+    {
+        gCredentialError = "Windows DPAPI 解密失败，错误码=" + std::to_string(GetLastError());
         return {};
+    }
     std::string plaintext(reinterpret_cast<char*>(output.pbData), output.cbData);
     LocalFree(output.pbData);
+    gCredentialError.clear();
     return plaintext;
 #else
     return DecryptAesGcm(ciphertext);
 #endif
+}
+
+std::string GetCredentialError()
+{
+    return gCredentialError;
 }
 
 void WriteAuthLog(const std::string& method, bool success,

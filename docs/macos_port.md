@@ -227,13 +227,12 @@ void SetAutoStart()
 **(b) `EncryptStr` / `DecryptStr`(现 56–100 行)— 语义对等替换**
 
 - **Windows 分支**:保留 DPAPI。
-- **macOS 分支**:Keychain 保管密钥 + OpenSSL AES-256-GCM:
+- **macOS 分支**:当前用户登录钥匙串保管密钥 + OpenSSL AES-256-GCM:
 
 ```cpp
-// 密钥获取: Keychain generic password, service = "AutoSZUWeb"
-//   首次 SecItemAdd(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-//                    kSecAttrSynchronizable=false)
-//   等价于 DPAPI 的 "仅本机本用户可解"
+// 密钥获取：当前用户默认登录钥匙串中的 generic password
+// service = "com.autoszuweb.AutoSZUWeb"
+// CI 使用独立临时钥匙串和唯一 service 名，避免污染 runner 环境。
 static std::string GetKey()
 {
     /* SecItemCopyMatching / SecItemAdd 取 32B */

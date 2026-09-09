@@ -50,10 +50,31 @@ jobs:
           -DCMAKE_PREFIX_PATH="$(brew --prefix curl);$(brew --prefix openssl@3);$(brew --prefix nlohmann-json)"
       - name: Build
         run: cmake --build build-ci --parallel
+      - name: Prepare test keychain
+        env:
+          KEYCHAIN_PASSWORD: autoszuweb-ci-keychain
+        run: |
+          TEST_KEYCHAIN="$RUNNER_TEMP/AutoSZUWebTests.keychain-db"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$TEST_KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$TEST_KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$TEST_KEYCHAIN"
+          security list-keychains -d user -s "$TEST_KEYCHAIN"
+          security default-keychain -d user -s "$TEST_KEYCHAIN"
+          echo "AUTOSZUWEB_TEST_KEYCHAIN=$TEST_KEYCHAIN" >> "$GITHUB_ENV"
       - name: Test
         env:
           AUTOSZUWEB_LAUNCH_AGENT_DIR: ${{ runner.temp }}/LaunchAgents
+          AUTOSZUWEB_KEYCHAIN_SERVICE: com.autoszuweb.AutoSZUWeb.ci.${{ github.run_id }}.${{ github.run_attempt }}
         run: ctest --test-dir build-ci --output-on-failure
+      - name: Verify and remove test keychain
+        if: always()
+        env:
+          AUTOSZUWEB_KEYCHAIN_SERVICE: com.autoszuweb.AutoSZUWeb.ci.${{ github.run_id }}.${{ github.run_attempt }}
+        run: |
+          status=0
+          security find-generic-password -s "$AUTOSZUWEB_KEYCHAIN_SERVICE" "$AUTOSZUWEB_TEST_KEYCHAIN" >/dev/null || status=$?
+          security delete-keychain "$AUTOSZUWEB_TEST_KEYCHAIN" || true
+          exit "$status"
       - name: Verify app bundle
         run: |
           test -x build-ci/AutoSZUWeb.app/Contents/MacOS/AutoSZUWeb

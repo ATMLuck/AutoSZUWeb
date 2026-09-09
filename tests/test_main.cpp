@@ -71,13 +71,18 @@ namespace
         const std::string plaintext = "2026123456|测试密码!@#";
         const std::string encrypted = EncryptStr(plaintext);
 #ifdef _WIN32
-        if (encrypted.empty() && (GetLastError() == ERROR_FILE_NOT_FOUND ||
-                                  GetLastError() == ERROR_NO_SUCH_LOGON_SESSION))
+        const std::string credentialError = GetCredentialError();
+        if (encrypted.empty() &&
+            (credentialError.find("错误码=2") != std::string::npos ||
+             credentialError.find("错误码=1312") != std::string::npos))
         {
-            std::cout << "[SKIP] DPAPI is unavailable in this sandboxed/non-interactive session\n";
+            std::cout << "[SKIP] DPAPI is unavailable in this sandboxed/non-interactive session: "
+                      << credentialError << '\n';
             return;
         }
 #endif
+        if (encrypted.empty() && !GetCredentialError().empty())
+            std::cerr << "[DETAIL] " << GetCredentialError() << '\n';
         Check(!encrypted.empty(), "credential encryption returns data");
         Check(encrypted != plaintext, "credential is not stored as plaintext");
         Check(DecryptStr(encrypted) == plaintext, "credential encryption round trip");
