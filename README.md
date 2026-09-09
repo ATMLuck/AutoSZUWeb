@@ -68,11 +68,20 @@ brew install cmake ninja curl openssl@3 nlohmann-json
 ./build_macos.sh
 ```
 
-产物：
+开发产物：
 
 ```text
 build/macos/AutoSZUWeb.app
 ```
+
+生成包含第三方动态库的可安装 DMG：
+
+```bash
+brew install dylibbundler
+./package_macos.sh
+```
+
+DMG 输出到 `dist/macos/`。无 Developer ID 时生成 ad-hoc 签名测试包，首次需在 Finder 中右键打开；正式无警告分发必须使用 Developer ID 签名并完成 Apple 公证，详见 [macOS 打包说明](docs/macos_packaging.md)。
 
 建议先将 `.app` 放到最终目录（例如 `/Applications`）再首次运行。程序会创建：
 
