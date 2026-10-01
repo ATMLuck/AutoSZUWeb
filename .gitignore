@@ -1,6 +1,7 @@
 .vscode
 *.o
 *.exe
-*.sh
 .claude/
 build/
+dist/
+test-backup/

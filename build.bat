@@ -1,11 +1,11 @@
-windres ./res/ico.rc -o ./res/ico.o
-g++ -std=c++17 -static -mwindows -DCURL_STATICLIB -I ./include -L ./lib ^
-    ./src/AutoSZUWeb.cpp ./src/sys.cpp ./src/web.cpp ./src/file_path.cpp ./src/srun.cpp ./res/ico.o ^
-    -lcurl -lssl -lcrypto ^
-    -lnghttp2 -lnghttp3 -lngtcp2 -lngtcp2_crypto_libressl ^
-    -lssh2 -lz ^
-    -lzstd -lbrotlidec -lbrotlicommon -lpsl ^
-    -lws2_32 -lcrypt32 -lbcrypt -lwldap32 -liphlpapi -lsecur32 -lshell32 ^
-    -o ^
-    ./build/AutoSZUWeb.exe
+@echo off
+setlocal
+cmake -S . -B build\windows -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DAUTOSZUWEB_BUILD_TESTS=ON
+if errorlevel 1 exit /b %errorlevel%
+cmake --build build\windows --parallel
+if errorlevel 1 exit /b %errorlevel%
+ctest --test-dir build\windows --output-on-failure
+if errorlevel 1 exit /b %errorlevel%
+echo.
+echo Build complete: build\windows\AutoSZUWeb.exe
 pause

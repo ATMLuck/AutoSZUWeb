@@ -1,121 +1,174 @@
+#include "app_ui.h"
 #include "file_path.h"
-#include "web.h"
+#include "runtime.h"
+#include "single_instance.h"
 #include "sys.h"
+#include "web.h"
+#include "user_data.h"
+
 #include <nlohmann/json.hpp>
-#include <windows.h>
-#include <string>
-#include <fstream>
-#include <iostream>
-#include <string>
+
+#include <chrono>
 #include <cstdlib>
-#include <shlobj.h>
-#include <vector>
 #include <filesystem>
-#include <curl/curl.h>
+#include <fstream>
+#include <string>
+#include <system_error>
+#include <thread>
+
 namespace fs = std::filesystem;
-bool FirstBoot = true;
 
-void mainwork()
+namespace
 {
-    nlohmann::json Logindata;
-    fs::path LoginPath =  GetConfigPath();
-    
-    std::ifstream LoginFile(LoginPath);
-    LoginFile >> Logindata;
-    LoginFile.close();
+    bool FirstBoot = true;
 
-    std::string Account = DecryptStr(Logindata["Account"].get<std::string>());
-    std::string Password = DecryptStr(Logindata["Password"].get<std::string>());
-    // 启动即登录一次: 结果决定初始在线/离线态, 首次弹窗反馈在 Login 内
-    bool online = Login(Account,Password);
-    FirstBoot = false;
-
-    while (1)
+    [[noreturn]] void ExitWithMessage(const std::string& message)
     {
-        if (online)
-        {
-            // 在线态: 每 10s 探测一次, 不通即转离线
-            if (!NetworkCheck())
-                online = false;
-        }
-        else
-        {
-            // 离线态: 每 10s 登录一次, 成功即转在线
-            if (Login(Account, Password))
-                online = true;
-        }
-        Sleep(1000 * 10);
+        AppUI::ShowMessage(message, "提示");
+        std::exit(1);
     }
-}
-void newuser()
-{
-    fs::path in_file_path =  GetDesktopPath() / "userdata.txt";
-    if (fs::exists(in_file_path) && fs::is_regular_file(in_file_path))
+
+    void RunMainLoop()
     {
-        std::ifstream inFile(in_file_path);
-        if (!inFile.is_open())
+        const fs::path loginPath = GetConfigPath();
+        if (loginPath.empty())
+            ExitWithMessage("无法确定配置文件路径。");
+
+        nlohmann::json loginData;
+        try
         {
-            MessageBoxW(NULL, L"无法读取指定路径的文件：", L"提示", MB_OK);
-            std::exit(1);
+            std::ifstream loginFile(loginPath);
+            if (!loginFile)
+                ExitWithMessage("无法读取配置文件：" + loginPath.u8string());
+            loginFile >> loginData;
         }
-        std::string line;
-        fs::path out_file_path =  GetConfigPath();
-        std::ofstream outFile(out_file_path);
-        if (!outFile.is_open())
+        catch (const std::exception& error)
         {
-            MessageBoxW(NULL, L"无法创建/打开文件进行写入！", L"提示", MB_OK);
-            std::exit(1);;
+            ExitWithMessage("配置文件格式错误，请删除后重新配置。\n" +
+                std::string(error.what()));
         }
-        nlohmann::json Userdata;
-        int i = 0;
-        while (std::getline(inFile, line))
-        {
-            if(i == 0) Userdata["Account"] = EncryptStr(line);
-            if(i == 1) Userdata["Password"] = EncryptStr(line);
-            i++;
-        }
-        outFile << Userdata;
-        inFile.close();
-        outFile.close();
+
+        if (!loginData.contains("Account") || !loginData["Account"].is_string() ||
+            !loginData.contains("Password") || !loginData["Password"].is_string())
+            ExitWithMessage("配置文件缺少账号或密码，请删除后重新配置。");
+
+        const std::string account = DecryptStr(loginData["Account"].get<std::string>());
+        const std::string password = DecryptStr(loginData["Password"].get<std::string>());
+        if (account.empty() || password.empty())
+            ExitWithMessage("无法解密账号或密码，请删除配置文件后重新配置。");
+
+        // 每次启动都修复/刷新自启动配置，允许用户移动 .app 后自动更新路径。
         SetAutoStart();
-        std::remove(in_file_path.string().c_str());
-        mainwork();
+
+        const bool online = Login(account, password);
+        FirstBoot = false;
+
+        Runtime::MonitorCallbacks callbacks;
+        callbacks.login = [&] { return Login(account, password); };
+        callbacks.networkCheck = [] { return NetworkCheck(); };
+        callbacks.sleep = [](std::chrono::milliseconds duration) {
+            std::this_thread::sleep_for(duration);
+        };
+        callbacks.shouldStop = [] { return false; };
+        Runtime::RunMonitorLoop(
+            online ? Runtime::ConnectionState::Online
+                   : Runtime::ConnectionState::Offline,
+            callbacks);
     }
-    else
+
+    void ConfigureNewUser()
     {
-        std::cout << "\a"; 
-        if(MessageBoxW(NULL,L"请打开桌面上的userdata.txt文"
-            "件，并按照文件内提示写入校园卡号和统一身份认证平台"
-                "密码，并重新启动本程序。ᖰ˃̵ ֊ ˂̵ᖳ",L"提示",
-            MB_OKCANCEL|MB_ICONASTERISK)==IDCANCEL)
+        const fs::path desktop = GetDesktopPath();
+        if (desktop.empty())
+            ExitWithMessage("无法确定桌面路径。");
+        const fs::path inputPath = desktop / "userdata.txt";
+
+        if (!fs::exists(inputPath) || !fs::is_regular_file(inputPath))
         {
-            std::exit(0);
+            if (AppUI::ShowMessage(
+                    "请打开桌面上的 userdata.txt 文件，并按照文件内提示写入校园卡号和统一身份认证平台密码，然后重新启动本程序。",
+                    "提示", true) == AppUI::Button::Cancel)
+                std::exit(0);
+
+            std::error_code error;
+            fs::create_directories(desktop, error);
+            std::string fileError;
+            if (!UserData::CreateTemplate(inputPath, fileError))
+                ExitWithMessage(fileError + "。macOS 首次使用时请允许访问桌面文件夹。");
+            return;
         }
-        fs::path filename = "userdata.txt";
-        fs::path DesktopPath = GetDesktopPath();
-        fs::path file_path =  DesktopPath / filename;
-        std::ofstream outFile(file_path);
-        if (!outFile.is_open())
+
+        std::string account;
+        std::string password;
+        std::string fileError;
+        if (!UserData::ReadCredentials(inputPath, account, password, fileError))
+            ExitWithMessage(fileError + "。");
+
+        const std::string encryptedAccount = EncryptStr(account);
+        const std::string encryptedPassword = EncryptStr(password);
+        if (encryptedAccount.empty() || encryptedPassword.empty())
         {
-            MessageBoxW(NULL, L"无法创建/打开文件进行写入！", L"提示", MB_OK);
-            std::exit(1);
+            const std::string detail = GetCredentialError();
+            ExitWithMessage("系统凭据保护失败，未保存账号密码。"
+                + (detail.empty() ? std::string{} : "\n" + detail));
         }
-        outFile << "(请将此行替换为校园卡号)\n";
-        outFile << "(请将此行替换为统一身份认证平台密码,替换完记得Ctrl+s保存ᖰ˃̵ ֊ ˂̵ᖳ)";
-        outFile.close();
-        std::exit(0);
+
+        const fs::path configPath = GetConfigPath();
+        if (configPath.empty())
+            ExitWithMessage("无法确定配置文件路径。");
+        fs::path temporaryPath = configPath;
+        temporaryPath += ".tmp";
+        {
+            std::ofstream output(temporaryPath, std::ios::trunc);
+            if (!output)
+                ExitWithMessage("无法创建配置文件。");
+            output << nlohmann::json{
+                {"Account", encryptedAccount},
+                {"Password", encryptedPassword}
+            }.dump(2);
+            if (!output)
+                ExitWithMessage("写入配置文件失败。");
+        }
+
+        std::error_code error;
+        fs::rename(temporaryPath, configPath, error);
+        if (error)
+        {
+            fs::remove(configPath, error);
+            error.clear();
+            fs::rename(temporaryPath, configPath, error);
+        }
+        if (error)
+            ExitWithMessage("保存配置文件失败：" + error.message());
+        std::string removeError;
+        if (!UserData::RemoveFile(inputPath, removeError))
+            AppUI::ShowMessage(removeError +
+                "。请关闭正在占用该文件的程序后手动删除。", "提示");
+        RunMainLoop();
     }
 }
+
+// 供 web.cpp 控制首次认证弹窗。
+bool IsFirstBoot()
+{
+    return FirstBoot;
+}
+
 int main()
 {
-    fs::path first_file_path =  GetConfigPath();
-    if (fs::exists(first_file_path) && fs::is_regular_file(first_file_path))
-    {
-        mainwork();
-    }
+    const fs::path configPath = GetConfigPath();
+    if (configPath.empty())
+        ExitWithMessage("无法确定配置文件路径。");
+
+
+    Runtime::SingleInstanceGuard instanceGuard(
+        configPath.parent_path() / "AutoSZUWeb.instance.lock");
+    if (!instanceGuard.IsPrimary())
+        return 0;
+
+    if (fs::exists(configPath) && fs::is_regular_file(configPath))
+        RunMainLoop();
     else
-    {
-        newuser();
-    }
+        ConfigureNewUser();
     return 0;
 }
