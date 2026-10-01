@@ -21,8 +21,7 @@ namespace
 #ifdef _WIN32
     std::wstring MutexNameForPath(const fs::path& lockPath)
     {
-        // Stable FNV-1a hash keeps independent test/application locks separate
-        // while the Local namespace naturally scopes the mutex to this user session.
+
         const std::string value = fs::absolute(lockPath).u8string();
         std::uint64_t hash = 14695981039346656037ull;
         for (unsigned char byte : value)

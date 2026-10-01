@@ -18,7 +18,6 @@ AutoSZUWeb 是深圳大学校园网后台自动认证工具。配置账号后，
 | Windows | 支持 | Windows DPAPI | 自复制到 `%APPDATA%` 并写入当前用户 Run 注册表 |
 | macOS 11+ | 支持源码构建 | 用户登录钥匙串保存随机密钥 + AES-256-GCM | 用户级 LaunchAgent |
 
-macOS 开发构建会生成后台 `.app`（`LSUIElement=true`，无 Dock 图标）。公开分发前仍需完成 Homebrew 动态依赖封装、Developer ID 签名和 Apple 公证，详见 [测试与发布方案](docs/testing.md)。
 
 ## 功能
 
@@ -82,7 +81,7 @@ brew install dylibbundler
 ./package_macos.sh
 ```
 
-DMG 输出到 `dist/macos/`。无 Developer ID 时生成 ad-hoc 签名测试包，首次需在 Finder 中右键打开；正式无警告分发必须使用 Developer ID 签名并完成 Apple 公证，详见 [macOS 打包说明](docs/macos_packaging.md)。
+DMG 输出到 `dist/macos/`。无 Developer ID 时生成 ad-hoc 签名测试包，首次需在设置中手动放行；
 
 建议先将 `.app` 放到最终目录（例如 `/Applications`）再首次运行。程序会创建：
 
@@ -125,11 +124,6 @@ cmake -S . -B build/test -G "MinGW Makefiles" -DAUTOSZUWEB_BUILD_TESTS=ON
 cmake --build build/test --parallel
 ctest --test-dir build/test --output-on-failure
 ```
-
-完整的 Windows 回归、macOS CI、Keychain、LaunchAgent、TCC、Gatekeeper、签名公证和校园网真机验收步骤见：
-
-- [macOS 移植实现说明](docs/macos_port.md)
-- [完整测试与发布方案](docs/testing.md)
 
 ## 卸载
 

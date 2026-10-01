@@ -24,8 +24,8 @@ namespace UserData
             return false;
         }
 
-        output << "(请将此行替换为校园卡号)\n"
-               << "(请将此行替换为统一身份认证平台密码，替换后请保存)\n";
+        output << "(请将此行整体替换为校园卡号)\n"
+               << "(请将此行整体替换为统一身份认证平台密码,替换完记得Ctrl+s保存ᖰ˃̵ ֊ ˂̵ᖳ)\n";
         output.flush();
         if (!output)
         {

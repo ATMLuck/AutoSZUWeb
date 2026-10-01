@@ -160,8 +160,7 @@ int main()
     if (configPath.empty())
         ExitWithMessage("无法确定配置文件路径。");
 
-    // Finder and LaunchAgent can start the app at the same time. Reject the
-    // later process before it can display an identical authentication dialog.
+
     Runtime::SingleInstanceGuard instanceGuard(
         configPath.parent_path() / "AutoSZUWeb.instance.lock");
     if (!instanceGuard.IsPrimary())
