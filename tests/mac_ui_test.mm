@@ -27,6 +27,7 @@ namespace
 @property(nonatomic, retain) NSString* buttonTitle;
 @property(nonatomic, assign) BOOL clicked;
 @property(nonatomic, assign) NSInteger attempts;
+@property(nonatomic, assign) BOOL customPanel;
 @end
 
 @implementation AutoSZUWebMacAlertTestDriver
@@ -40,6 +41,8 @@ namespace
 - (void)tryClick:(NSTimer*)timer
 {
     NSWindow* window = NSApp.modalWindow;
+    if (window && [window.identifier isEqualToString:@"com.autoszuweb.modal-panel"])
+        self.customPanel = YES;
     NSButton* button = window ? FindButton(window.contentView, self.buttonTitle) : nil;
     if (button)
     {
@@ -76,7 +79,7 @@ static bool RunButtonDismissTest(NSString* title,
 
     const AppUI::Button result = AppUI::ShowMessage(
         "macOS modal button regression test", "AutoSZUWeb Test", allowCancel);
-    const bool passed = driver.clicked && result == expected;
+    const bool passed = driver.clicked && driver.customPanel && result == expected;
     [driver release];
     return passed;
 }

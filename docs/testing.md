@@ -188,7 +188,7 @@ pgrep -fl AutoSZUWeb
 
 ## macOS 弹窗与单实例回归测试
 
-单实例保护用于阻止 Finder 手动启动与 LaunchAgent 同时运行；但如果进程数已经确认只有一个，而“确定”仍不能关闭窗口，则属于 AppKit 模态事件链问题。新版将按钮绑定到项目自己的 target/action，并在 action 中显式调用 `stopModalWithCode:`，不再依赖 `NSAlert::runModal()` 的内部按钮处理。
+单实例保护用于阻止 Finder 手动启动与 LaunchAgent 同时运行；但如果进程数已经确认只有一个，而“确定”仍不能关闭窗口，则属于 AppKit 模态事件链问题。新版已改为项目自建 `NSPanel`，按钮绑定到项目自己的 target/action，并在 action 中显式调用 `stopModalWithCode:`，不再依赖 `NSAlert` 的内部按钮和窗口实现。
 
 测试新版前必须结束全部旧版本进程：
 
@@ -226,7 +226,7 @@ pgrep -x AutoSZUWeb | wc -l
 
 ### macOS UI 自动回归测试
 
-macOS 构建现在包含 `AutoSZUWebMacUITests`。测试会真正创建 NSAlert，并通过 AppKit `performClick:` 分别点击“确定”和“取消”。测试要求：
+macOS 构建现在包含 `AutoSZUWebMacUITests`。测试会真正创建项目自建的 `NSPanel`，并通过 AppKit `performClick:` 分别点击“确定”和“取消”。测试要求：
 
 - “确定”必须让 `ShowMessage()` 返回 `AppUI::Button::Ok`；
 - “取消”必须让 `ShowMessage()` 返回 `AppUI::Button::Cancel`；
