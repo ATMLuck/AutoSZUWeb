@@ -237,3 +237,19 @@ macOS 构建现在包含 `AutoSZUWebMacUITests`。测试会真正创建项目自
 ```bash
 ctest --test-dir build-ci -R AutoSZUWebMacUITests --output-on-failure
 ```
+
+## macOS 启动认证结果静默策略
+
+macOS 仍保留首次配置、配置损坏和凭据错误提示，但每次启动后的第一次 SRun/ePortal 认证不再显示成功或失败弹窗。认证结果继续写入：
+
+```text
+~/Library/Application Support/AutoSZUWeb/logs/auth_YYYY-MM-DD.log
+```
+
+验证：
+
+1. 保留有效 `setting.json` 后启动应用；
+2. 确认不出现“认证成功”或“认证失败”窗口；
+3. 确认进程继续后台运行；
+4. 查看当天日志，确认仍记录认证方式、结果、设备 IP 或失败原因；
+5. 删除配置和桌面 `userdata.txt` 后启动，确认首次配置提示仍正常出现。

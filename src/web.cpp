@@ -109,7 +109,7 @@ bool Login(const std::string& account, const std::string& password)
     static const bool curlInitialized = curl_global_init(CURL_GLOBAL_ALL) == CURLE_OK;
     if (!curlInitialized)
     {
-        if (IsFirstBoot())
+        if (IsFirstBoot() && AppUI::ShouldShowAuthenticationResult())
             AppUI::ShowMessage("curl 全局初始化失败");
         WriteAuthLog("初始化", false, "", "curl 全局初始化失败");
         return false;
@@ -141,7 +141,7 @@ bool Login(const std::string& account, const std::string& password)
             + "; 宿舍区: " + (dormitoryMessage.empty() ? "无" : dormitoryMessage);
     WriteAuthLog(method, ok, ok ? GetLocalIp() : "", ok ? logNote : logReason);
 
-    if (IsFirstBoot())
+    if (IsFirstBoot() && AppUI::ShouldShowAuthenticationResult())
     {
         if (ok)
             AppUI::ShowMessage(successMessage, "提示");

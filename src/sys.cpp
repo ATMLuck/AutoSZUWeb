@@ -413,6 +413,15 @@ AppUI::Button AppUI::ShowMessage(const std::string& text, const std::string& tit
 }
 #endif
 
+bool AppUI::ShouldShowAuthenticationResult()
+{
+#ifdef _WIN32
+    return true;
+#else
+    return false;
+#endif
+}
+
 void SetAutoStart()
 {
 #ifdef _WIN32

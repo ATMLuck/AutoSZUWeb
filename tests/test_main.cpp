@@ -1,3 +1,4 @@
+#include "app_ui.h"
 #include "file_path.h"
 #include "network.h"
 #include "platform_support.h"
@@ -92,6 +93,17 @@ namespace
         if (!tampered.empty())
             tampered[tampered.size() / 2] = tampered[tampered.size() / 2] == 'A' ? 'B' : 'A';
         Check(DecryptStr(tampered).empty(), "tampered credential is rejected");
+    }
+
+    void TestAuthenticationResultUiPolicy()
+    {
+#ifdef _WIN32
+        Check(AppUI::ShouldShowAuthenticationResult(),
+            "Windows keeps the startup authentication result dialog");
+#else
+        Check(!AppUI::ShouldShowAuthenticationResult(),
+            "non-Windows background authentication does not show a result dialog");
+#endif
     }
 
     void TestUserDataFileLifecycle(const fs::path& root)
@@ -264,6 +276,7 @@ int main()
     try
     {
         TestEncryption();
+        TestAuthenticationResultUiPolicy();
         TestUserDataFileLifecycle(root);
         TestPathsAndLogging(root);
 #ifdef __APPLE__
