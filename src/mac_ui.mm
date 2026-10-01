@@ -13,34 +13,30 @@ namespace
     }
 }
 
-@interface AutoSZUWebAlertDelegate : NSObject <NSWindowDelegate>
-@property(nonatomic, assign) BOOL didCloseWindow;
+@interface AutoSZUWebAlertController : NSObject
+- (void)confirm:(id)sender;
+- (void)cancel:(id)sender;
+- (void)windowWillClose:(NSNotification*)notification;
 @end
 
-@implementation AutoSZUWebAlertDelegate
+@implementation AutoSZUWebAlertController
 
-- (instancetype)init
+- (void)confirm:(id)sender
 {
-    self = [super init];
-    if (self)
-        _didCloseWindow = NO;
-    return self;
+    (void)sender;
+    [NSApp stopModalWithCode:NSModalResponseOK];
 }
 
-- (BOOL)windowShouldClose:(NSWindow*)window
+- (void)cancel:(id)sender
 {
-    (void)window;
-    self.didCloseWindow = YES;
-    // Closing the title-bar button does not generate an NSAlert button
-    // response, so explicitly abort the modal session before allowing close.
-    [NSApp abortModal];
-    return YES;
+    (void)sender;
+    [NSApp stopModalWithCode:NSModalResponseCancel];
 }
 
 - (void)windowWillClose:(NSNotification*)notification
 {
-    (void)notification;
-    self.didCloseWindow = YES;
+    if (notification.object == NSApp.modalWindow)
+        [NSApp stopModalWithCode:NSModalResponseCancel];
 }
 
 @end
@@ -53,9 +49,6 @@ static AppUI::Button ShowMessageOnMainThread(const std::string& text,
     [application finishLaunching];
 
     const NSApplicationActivationPolicy previousPolicy = application.activationPolicy;
-    // A background/accessory app can own an NSAlert, but making it regular for
-    // the duration of the modal interaction ensures AppKit gives it keyboard
-    // and mouse focus when launched by launchd or Finder.
     [application setActivationPolicy:NSApplicationActivationPolicyRegular];
     [application activateIgnoringOtherApps:YES];
 
@@ -63,34 +56,46 @@ static AppUI::Button ShowMessageOnMainThread(const std::string& text,
     alert.alertStyle = NSAlertStyleInformational;
     alert.messageText = Utf8String(title);
     alert.informativeText = Utf8String(text);
-    [alert addButtonWithTitle:@"确定"];
-    if (allowCancel)
-        [alert addButtonWithTitle:@"取消"];
 
-    AutoSZUWebAlertDelegate* delegate = [[AutoSZUWebAlertDelegate alloc] init];
-    alert.window.delegate = delegate;
-    NSButton* closeButton = [alert.window standardWindowButton:NSWindowCloseButton];
-    closeButton.enabled = YES;
-    [alert.window center];
-    [alert.window makeKeyAndOrderFront:nil];
+    AutoSZUWebAlertController* controller =
+        [[AutoSZUWebAlertController alloc] init];
+
+    NSButton* confirmButton = [alert addButtonWithTitle:@"确定"];
+    confirmButton.target = controller;
+    confirmButton.action = @selector(confirm:);
+
+    if (allowCancel)
+    {
+        NSButton* cancelButton = [alert addButtonWithTitle:@"取消"];
+        cancelButton.target = controller;
+        cancelButton.action = @selector(cancel:);
+    }
+
+    NSWindow* window = alert.window;
+    [[NSNotificationCenter defaultCenter]
+        addObserver:controller
+        selector:@selector(windowWillClose:)
+        name:NSWindowWillCloseNotification
+        object:window];
+
+    [window center];
+    [window makeKeyAndOrderFront:nil];
     [application activateIgnoringOtherApps:YES];
 
-    const NSModalResponse response = [alert runModal];
-    const bool cancelled = delegate.didCloseWindow ||
-        response == NSModalResponseAbort ||
-        response == NSModalResponseCancel ||
-        response == NSAlertSecondButtonReturn;
+    // Use an explicit modal session. The button actions above terminate this
+    // exact loop with stopModalWithCode:, instead of relying on NSAlert's
+    // private target/action wiring in an LSUIElement background application.
+    const NSModalResponse response = [application runModalForWindow:window];
 
-    if (alert.window.isVisible)
-        [alert.window orderOut:nil];
-    alert.window.delegate = nil;
-    [delegate release];
+    [[NSNotificationCenter defaultCenter] removeObserver:controller];
+    [window orderOut:nil];
+    [controller release];
     [alert release];
 
     if (previousPolicy != NSApplicationActivationPolicyRegular)
         [application setActivationPolicy:previousPolicy];
 
-    return allowCancel && cancelled
+    return allowCancel && response != NSModalResponseOK
         ? AppUI::Button::Cancel : AppUI::Button::Ok;
 }
 

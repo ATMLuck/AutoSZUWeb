@@ -120,6 +120,15 @@ if(AUTOSZUWEB_BUILD_TESTS)
     if(APPLE)
         target_sources(AutoSZUWebTests PRIVATE src/mac_ui.mm)
         target_link_libraries(AutoSZUWebTests PRIVATE "-framework Cocoa")
+
+        add_executable(AutoSZUWebMacUITests
+            tests/mac_ui_test.mm
+            src/mac_ui.mm)
+        target_include_directories(AutoSZUWebMacUITests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        target_link_libraries(AutoSZUWebMacUITests PRIVATE "-framework Cocoa")
+        add_test(NAME AutoSZUWebMacUITests COMMAND AutoSZUWebMacUITests)
+        set_tests_properties(AutoSZUWebMacUITests PROPERTIES TIMEOUT 15)
     endif()
     if(WIN32)
         target_link_directories(AutoSZUWebTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)

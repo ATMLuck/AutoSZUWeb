@@ -186,9 +186,9 @@ pgrep -fl AutoSZUWeb
 
 如果弹窗已经关闭但进程仍然存在，这是正常的：认证成功后的弹窗关闭会回到后台常驻循环；首次配置取消或错误退出则应没有进程。
 
-## macOS 重叠弹窗与单实例回归测试
+## macOS 弹窗与单实例回归测试
 
-如果点击“确定”后看起来仍是同一个窗口，先检查是否实际存在多个完全重合的弹窗。旧版本允许 Finder 手动启动与 LaunchAgent 同时运行，因此关闭最上层窗口后，下层相同窗口会立即显现。
+单实例保护用于阻止 Finder 手动启动与 LaunchAgent 同时运行；但如果进程数已经确认只有一个，而“确定”仍不能关闭窗口，则属于 AppKit 模态事件链问题。新版将按钮绑定到项目自己的 target/action，并在 action 中显式调用 `stopModalWithCode:`，不再依赖 `NSAlert::runModal()` 的内部按钮处理。
 
 测试新版前必须结束全部旧版本进程：
 
@@ -223,3 +223,17 @@ pgrep -x AutoSZUWeb | wc -l
 ```
 
 该文件可以长期存在；真正的所有权由内核 `flock` 管理，不能以文件存在与否判断程序是否正在运行。进程退出后锁会自动释放。
+
+### macOS UI 自动回归测试
+
+macOS 构建现在包含 `AutoSZUWebMacUITests`。测试会真正创建 NSAlert，并通过 AppKit `performClick:` 分别点击“确定”和“取消”。测试要求：
+
+- “确定”必须让 `ShowMessage()` 返回 `AppUI::Button::Ok`；
+- “取消”必须让 `ShowMessage()` 返回 `AppUI::Button::Cancel`；
+- 任一按钮未结束模态循环时，CTest 在 15 秒后判定失败。
+
+可单独运行：
+
+```bash
+ctest --test-dir build-ci -R AutoSZUWebMacUITests --output-on-failure
+```
