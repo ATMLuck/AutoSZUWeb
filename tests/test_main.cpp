@@ -2,6 +2,7 @@
 #include "network.h"
 #include "platform_support.h"
 #include "runtime.h"
+#include "single_instance.h"
 #include "sys.h"
 #include "user_data.h"
 
@@ -164,6 +165,23 @@ namespace
             "LaunchAgent restricted to Aqua session");
     }
 
+    void TestSingleInstanceGuard(const fs::path& root)
+    {
+        const fs::path lockPath = root / "single-instance.lock";
+        Runtime::SingleInstanceGuard first(lockPath);
+        Check(first.IsPrimary(), "first instance acquires application lock");
+
+        Runtime::SingleInstanceGuard second(lockPath);
+        Check(!second.IsPrimary(), "second instance is rejected while first is alive");
+
+        {
+            Runtime::SingleInstanceGuard temporary(root / "released-instance.lock");
+            Check(temporary.IsPrimary(), "temporary instance acquires lock");
+        }
+        Runtime::SingleInstanceGuard afterRelease(root / "released-instance.lock");
+        Check(afterRelease.IsPrimary(), "instance lock is released on destruction");
+    }
+
     void TestRuntimeStateMachine()
     {
         int loginCalls = 0;
@@ -258,6 +276,7 @@ int main()
             "macOS LaunchAgent uses current executable path");
 #endif
         TestLaunchAgentPlist();
+        TestSingleInstanceGuard(root);
         TestRuntimeStateMachine();
         TestLoopbackProbe();
     }

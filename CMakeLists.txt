@@ -12,6 +12,7 @@ set(AUTOSZUWEB_CORE_SOURCES
     src/network.cpp
     src/platform_support.cpp
     src/runtime.cpp
+    src/single_instance.cpp
     src/sys.cpp
     src/user_data.cpp
 )
