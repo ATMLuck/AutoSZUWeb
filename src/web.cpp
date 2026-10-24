@@ -104,53 +104,55 @@ namespace
     }
 }
 
-bool Login(const std::string& account, const std::string& password)
+bool Login(const std::string& account, const std::string& password, std::string& message)
 {
     static const bool curlInitialized = curl_global_init(CURL_GLOBAL_ALL) == CURLE_OK;
     if (!curlInitialized)
     {
+        message = "curl 全局初始化失败";
         if (IsFirstBoot() && AppUI::ShouldShowAuthenticationResult())
-            AppUI::ShowMessage("curl 全局初始化失败");
-        WriteAuthLog("初始化", false, "", "curl 全局初始化失败");
+            AppUI::ShowMessage(message);
+        WriteAuthLog("初始化", false, "", message);
         return false;
     }
 
     std::string srunMessage;
     std::string dormitoryMessage;
     std::string method;
-    std::string successMessage;
     std::string logNote;
 
     bool ok = SrunLogin(account, password, srunMessage);
     if (ok)
     {
         method = "SRun(教学区)";
-        successMessage = srunMessage;
+        message = srunMessage;
     }
     else
     {
         ok = LoginDormitory(account, password, dormitoryMessage, logNote);
         method = ok ? "ePortal(宿舍区)" : "SRun→ePortal";
         if (ok)
-            successMessage = dormitoryMessage;
+            message = dormitoryMessage;
     }
 
     std::string logReason;
     if (!ok)
+    {
         logReason = "教学区: " + (srunMessage.empty() ? "无" : srunMessage)
             + "; 宿舍区: " + (dormitoryMessage.empty() ? "无" : dormitoryMessage);
+        message = "教学区认证失败: " + (srunMessage.empty() ? "无" : srunMessage)
+            + "\n宿舍区认证失败: "
+            + (dormitoryMessage.empty() ? "无" : dormitoryMessage);
+    }
     WriteAuthLog(method, ok, ok ? GetLocalIp() : "", ok ? logNote : logReason);
 
     if (IsFirstBoot() && AppUI::ShouldShowAuthenticationResult())
-    {
-        if (ok)
-            AppUI::ShowMessage(successMessage, "提示");
-        else
-            AppUI::ShowMessage(
-                "教学区认证失败: " + (srunMessage.empty() ? "无" : srunMessage)
-                + "\n宿舍区认证失败: "
-                + (dormitoryMessage.empty() ? "无" : dormitoryMessage),
-                "提示");
-    }
+        AppUI::ShowMessage(message, "提示");
     return ok;
+}
+
+bool Login(const std::string& account, const std::string& password)
+{
+    std::string message;
+    return Login(account, password, message);
 }

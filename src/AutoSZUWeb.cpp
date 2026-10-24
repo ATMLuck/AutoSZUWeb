@@ -1,4 +1,5 @@
 #include "app_ui.h"
+#include "cli.h"
 #include "file_path.h"
 #include "runtime.h"
 #include "single_instance.h"
@@ -12,6 +13,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -26,6 +28,19 @@ namespace
     {
         AppUI::ShowMessage(message, "提示");
         std::exit(1);
+    }
+
+    // 手动认证模式：认证一次后退出，不写配置、不注册自启动、不进入监控循环。
+    int RunOneShotAuth(const std::string& account, const std::string& password)
+    {
+        FirstBoot = false; // 抑制首启认证弹窗，改用控制台输出。
+        std::string message;
+        const bool ok = Login(account, password, message);
+        if (PrepareCliConsole())
+            std::cout << (ok ? "认证成功: " : "认证失败: ") << message << '\n';
+        else
+            AppUI::ShowMessage(message, ok ? "认证成功" : "认证失败");
+        return ok ? 0 : 1;
     }
 
     void RunMainLoop()
@@ -154,8 +169,28 @@ bool IsFirstBoot()
     return FirstBoot;
 }
 
-int main()
+int main(int argc, char* argv[])
 {
+    const Cli::Parsed parsed = Cli::Parse(GetUtf8Arguments(argc, argv));
+
+    if (parsed.action == Cli::Action::Help)
+    {
+        if (PrepareCliConsole())
+            Cli::PrintUsage(std::cout);
+        return 0;
+    }
+    if (parsed.action == Cli::Action::UsageError)
+    {
+        if (PrepareCliConsole())
+        {
+            std::cerr << "参数无效。\n\n";
+            Cli::PrintUsage(std::cerr);
+        }
+        return 2;
+    }
+    if (parsed.action == Cli::Action::OneShotAuth)
+        return RunOneShotAuth(parsed.account, parsed.password);
+
     const fs::path configPath = GetConfigPath();
     if (configPath.empty())
         ExitWithMessage("无法确定配置文件路径。");
