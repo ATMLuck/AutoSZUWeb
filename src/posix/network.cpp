@@ -1,3 +1,4 @@
+// macOS 与 Linux 共用的 POSIX socket 实现。
 #include "network.h"
 
 #include <array>
@@ -5,21 +6,15 @@
 #include <cstring>
 #include <string>
 
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-using SockT = SOCKET;
-static constexpr SockT kInvalidSocket = INVALID_SOCKET;
-#else
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
 using SockT = int;
 static constexpr SockT kInvalidSocket = -1;
-#endif
 
 namespace
 {
@@ -34,39 +29,22 @@ namespace
 
     bool SocketStartup()
     {
-#ifdef _WIN32
-        WSADATA wsa{};
-        return WSAStartup(MAKEWORD(2, 2), &wsa) == 0;
-#else
         return true;
-#endif
     }
 
     void SocketCleanup()
     {
-#ifdef _WIN32
-        WSACleanup();
-#endif
     }
 
     void CloseSock(SockT socketHandle)
     {
-#ifdef _WIN32
-        closesocket(socketHandle);
-#else
         ::close(socketHandle);
-#endif
     }
 
     bool SetNonBlocking(SockT socketHandle)
     {
-#ifdef _WIN32
-        u_long mode = 1;
-        return ioctlsocket(socketHandle, FIONBIO, &mode) == 0;
-#else
         const int flags = fcntl(socketHandle, F_GETFL, 0);
         return flags >= 0 && fcntl(socketHandle, F_SETFL, flags | O_NONBLOCK) == 0;
-#endif
     }
 }
 
@@ -91,11 +69,7 @@ std::string GetLocalIp()
     if (connect(socketHandle, reinterpret_cast<sockaddr*>(&remote), sizeof(remote)) == 0)
     {
         sockaddr_in local{};
-#ifdef _WIN32
-        int length = sizeof(local);
-#else
         socklen_t length = sizeof(local);
-#endif
         if (getsockname(socketHandle, reinterpret_cast<sockaddr*>(&local), &length) == 0)
         {
             char buffer[INET_ADDRSTRLEN] = {};
@@ -144,19 +118,11 @@ bool ProbeTcpEndpoint(const std::string& ip, int port, int timeoutMs)
                 FD_ZERO(&writable);
                 FD_SET(socketHandle, &writable);
                 timeval timeout{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
-#ifdef _WIN32
-                const int selectResult = select(0, nullptr, &writable, nullptr, &timeout);
-#else
                 const int selectResult = select(socketHandle + 1, nullptr, &writable, nullptr, &timeout);
-#endif
                 if (selectResult > 0)
                 {
                     int error = 0;
-#ifdef _WIN32
-                    int length = sizeof(error);
-#else
                     socklen_t length = sizeof(error);
-#endif
                     if (getsockopt(socketHandle, SOL_SOCKET, SO_ERROR,
                             reinterpret_cast<char*>(&error), &length) == 0)
                         ok = (error == 0);

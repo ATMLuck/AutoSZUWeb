@@ -186,3 +186,8 @@ AppUI::Button AppUI::ShowMessage(const std::string& text,
     });
     return result;
 }
+
+bool AppUI::ShouldShowAuthenticationResult()
+{
+    return false;
+}

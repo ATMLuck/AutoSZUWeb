@@ -1,17 +1,23 @@
 #include "app_ui.h"
+#include "cli.h"
+#include "config.h"
 #include "file_path.h"
 #include "network.h"
 #include "platform_support.h"
 #include "runtime.h"
 #include "single_instance.h"
 #include "sys.h"
+#include "uninstall.h"
 #include "user_data.h"
+
+#include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -95,6 +101,56 @@ namespace
         Check(DecryptStr(tampered).empty(), "tampered credential is rejected");
     }
 
+    void TestCli(int argc, char* argv[])
+    {
+        Check(Cli::Parse({}).action == Cli::Action::NormalStartup,
+            "cli: no arguments starts the resident mode");
+        Check(Cli::Parse({"--uninstall"}).action == Cli::Action::Uninstall,
+            "cli: --uninstall selects uninstall mode");
+        Check(Cli::Parse({"--help"}).action == Cli::Action::Help,
+            "cli: --help selects help");
+        Check(Cli::Parse({"-h"}).action == Cli::Action::Help,
+            "cli: -h selects help");
+        Check(Cli::Parse({"--nonsense"}).action == Cli::Action::UsageError,
+            "cli: unknown option is a usage error");
+        Check(Cli::Parse({"account-only"}).action == Cli::Action::UsageError,
+            "cli: single non-option argument is a usage error");
+        const Cli::Parsed auth = Cli::Parse({"2026123456", "测试密码"});
+        Check(auth.action == Cli::Action::OneShotAuth &&
+              auth.account == "2026123456" && auth.password == "测试密码",
+            "cli: account and password select one-shot auth");
+        Check(Cli::Parse({"--uninstall", "extra"}).action == Cli::Action::UsageError,
+            "cli: option plus extra argument is a usage error");
+        Check(Cli::Parse({"a", "b", "c"}).action == Cli::Action::UsageError,
+            "cli: too many arguments is a usage error");
+        const Cli::Parsed enableAuto = Cli::Parse({"--auto", "true"});
+        Check(enableAuto.action == Cli::Action::SetAutoAuth &&
+              enableAuto.autoAuthEnabled,
+            "cli: --auto true selects enabling auto auth");
+        const Cli::Parsed disableAuto = Cli::Parse({"--auto", "FALSE"});
+        Check(disableAuto.action == Cli::Action::SetAutoAuth &&
+              !disableAuto.autoAuthEnabled,
+            "cli: --auto false selects disabling auto auth");
+        Check(Cli::Parse({"--auto"}).action == Cli::Action::UsageError,
+            "cli: --auto without value is a usage error");
+        Check(Cli::Parse({"--auto", "yes"}).action == Cli::Action::UsageError,
+            "cli: --auto with invalid value is a usage error");
+        std::ostringstream usage;
+        Cli::PrintUsage(usage);
+        Check(usage.str().find("--uninstall") != std::string::npos,
+            "cli: usage text mentions --uninstall");
+        Check(usage.str().find("--auto") != std::string::npos,
+            "cli: usage text mentions --auto");
+
+        const std::vector<std::string> arguments = GetUtf8Arguments(argc, argv);
+        bool roundTrip = arguments.size() ==
+            static_cast<size_t>(argc > 0 ? argc - 1 : 0);
+        for (size_t i = 0; roundTrip && i < arguments.size(); ++i)
+            roundTrip = arguments[i] == argv[i + 1];
+        Check(roundTrip, "cli: UTF-8 argument round trip without program name");
+        Check(PrepareCliConsole(), "cli: console output can be prepared");
+    }
+
     void TestAuthenticationResultUiPolicy()
     {
 #ifdef _WIN32
@@ -160,6 +216,95 @@ namespace
                 found = true;
         }
         Check(found, "authentication log content");
+    }
+
+    void TestUninstallSharedData(const fs::path& root)
+    {
+        const fs::path dataRoot = root / "uninstall-data";
+        const fs::path desktopRoot = root / "uninstall-desktop";
+        SetEnvironment("AUTOSZUWEB_DATA_ROOT", dataRoot.u8string());
+        SetEnvironment("AUTOSZUWEB_DESKTOP_ROOT", desktopRoot.u8string());
+
+        const fs::path dataDirectory = dataRoot / "AutoSZUWeb";
+        fs::create_directories(dataDirectory / "logs");
+        {
+            std::ofstream output(dataDirectory / "setting.json");
+            output << "{}";
+            std::ofstream log(dataDirectory / "logs" / "auth_2026-01-01.log");
+            log << "entry";
+            std::ofstream lock(dataDirectory / "AutoSZUWeb.instance.lock");
+            lock << "1";
+        }
+        fs::create_directories(desktopRoot);
+        {
+            std::ofstream output(desktopRoot / "userdata.txt");
+            output << "2026123456\r\npassword\r\n";
+        }
+
+        std::vector<fs::path> leftovers;
+        Uninstall::RemoveSharedData(leftovers);
+        Check(leftovers.empty(), "uninstall: shared data removal has no leftovers");
+        Check(!fs::exists(dataDirectory / "setting.json"),
+            "uninstall: setting.json removed");
+        Check(!fs::exists(dataDirectory / "logs"),
+            "uninstall: logs directory removed");
+        Check(!fs::exists(dataDirectory / "AutoSZUWeb.instance.lock"),
+            "uninstall: instance lock file removed");
+        Check(!fs::exists(desktopRoot / "userdata.txt"),
+            "uninstall: desktop userdata.txt removed");
+        Check(!fs::exists(dataDirectory),
+            "uninstall: data directory removed");
+    }
+
+    void TestAutoAuthConfig(const fs::path& root)
+    {
+        const fs::path dataRoot = root / "autoauth-data";
+        SetEnvironment("AUTOSZUWEB_DATA_ROOT", dataRoot.u8string());
+        const fs::path config = GetConfigPath();
+        Check(!config.empty() && fs::is_directory(config.parent_path()),
+            "auto-auth: config directory available");
+        {
+            std::ofstream output(config, std::ios::trunc);
+            output << nlohmann::json{
+                {"Account", "encrypted-account"},
+                {"Password", "encrypted-password"}
+            }.dump(2);
+        }
+
+        Check(Config::ReadAutoAuthEnabled(config),
+            "auto-auth: missing field defaults to enabled");
+        Check(Config::ReadAutoAuthEnabled(root / "missing.json"),
+            "auto-auth: missing file defaults to enabled");
+
+        std::string error;
+        Check(Config::WriteAutoAuthEnabled(config, false, error),
+            "auto-auth: disabling writes config");
+        const nlohmann::json updated = nlohmann::json::parse(ReadAll(config));
+        Check(updated.value("Account", "") == "encrypted-account" &&
+              updated.value("Password", "") == "encrypted-password",
+            "auto-auth: existing fields are preserved");
+        Check(updated.value("AutoAuth", true) == false,
+            "auto-auth: AutoAuth field is written");
+        Check(!Config::ReadAutoAuthEnabled(config),
+            "auto-auth: disabled value round trips");
+
+        Check(Config::WriteAutoAuthEnabled(config, true, error),
+            "auto-auth: enabling writes config");
+        Check(Config::ReadAutoAuthEnabled(config),
+            "auto-auth: enabled value round trips");
+        Check(!fs::exists(fs::path(config) += ".tmp"),
+            "auto-auth: no temporary file is left behind");
+
+        {
+            std::ofstream output(config, std::ios::trunc);
+            output << "{broken";
+        }
+        error.clear();
+        Check(!Config::WriteAutoAuthEnabled(config, true, error) && !error.empty(),
+            "auto-auth: corrupt config is rejected");
+        error.clear();
+        Check(!Config::WriteAutoAuthEnabled(root / "missing.json", true, error),
+            "auto-auth: missing config is rejected");
     }
 
     void TestLaunchAgentPlist()
@@ -266,7 +411,7 @@ namespace
     }
 }
 
-int main()
+int main(int argc, char* argv[])
 {
     const fs::path root = fs::temp_directory_path() /
         ("AutoSZUWebTests-" + std::to_string(
@@ -276,9 +421,12 @@ int main()
     try
     {
         TestEncryption();
+        TestCli(argc, argv);
         TestAuthenticationResultUiPolicy();
         TestUserDataFileLifecycle(root);
         TestPathsAndLogging(root);
+        TestUninstallSharedData(root);
+        TestAutoAuthConfig(root);
 #ifdef __APPLE__
         const fs::path launchAgentRoot = root / "LaunchAgents";
         SetEnvironment("AUTOSZUWEB_LAUNCH_AGENT_DIR", launchAgentRoot.u8string());
@@ -287,6 +435,22 @@ int main()
         Check(fs::is_regular_file(launchAgent), "macOS LaunchAgent file creation");
         Check(ReadAll(launchAgent).find("AutoSZUWebTests") != std::string::npos,
             "macOS LaunchAgent uses current executable path");
+        RemoveAutoStart();
+        Check(!fs::exists(launchAgent), "macOS LaunchAgent removal");
+        // 钥匙串删除仅在设置了专用服务名（CI 环境）时验证，避免误删本机真实密钥。
+        if (std::getenv("AUTOSZUWEB_KEYCHAIN_SERVICE"))
+        {
+            std::string credentialError;
+            const std::string beforeRemoval = EncryptStr("卸载前密文");
+            Check(!beforeRemoval.empty(), "macOS keychain key exists before removal");
+            Check(RemoveCredentialKey(credentialError),
+                "macOS keychain credential key removal");
+            Check(DecryptStr(beforeRemoval).empty(),
+                "ciphertext is undecryptable after key removal");
+            const std::string recreated = EncryptStr("卸载后密文");
+            Check(!recreated.empty() && DecryptStr(recreated) == "卸载后密文",
+                "macOS credential key is recreated after removal");
+        }
 #endif
         TestLaunchAgentPlist();
         TestSingleInstanceGuard(root);

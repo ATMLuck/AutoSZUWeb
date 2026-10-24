@@ -8,12 +8,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(AUTOSZUWEB_BUILD_TESTS "Build platform and logic tests" ON)
 
 set(AUTOSZUWEB_CORE_SOURCES
-    src/file_path.cpp
-    src/network.cpp
+    src/cli.cpp
+    src/config.cpp
+    src/internal/credential_crypto.cpp
     src/platform_support.cpp
     src/runtime.cpp
-    src/single_instance.cpp
     src/sys.cpp
+    src/uninstall.cpp
     src/user_data.cpp
 )
 
@@ -25,14 +26,26 @@ set(AUTOSZUWEB_APP_SOURCES
 
 if(APPLE)
     enable_language(OBJCXX)
-    list(APPEND AUTOSZUWEB_APP_SOURCES src/mac_ui.mm)
 endif()
 
 add_library(AutoSZUWebCore STATIC ${AUTOSZUWEB_CORE_SOURCES})
 target_include_directories(AutoSZUWebCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(AutoSZUWebCore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/internal)
 target_compile_features(AutoSZUWebCore PUBLIC cxx_std_17)
+# Core 使用 nlohmann/json（config.cpp）。MSYS2 环境没有 CMake 配置包，
+# 头文件位于编译器默认包含路径；其余环境在找到配置包时链接目标以获得包含路径。
+find_package(nlohmann_json CONFIG QUIET)
+if(nlohmann_json_FOUND)
+    target_link_libraries(AutoSZUWebCore PUBLIC nlohmann_json::nlohmann_json)
+endif()
 
 if(WIN32)
+    target_sources(AutoSZUWebCore PRIVATE
+        src/windows/ui.cpp
+        src/windows/sys.cpp
+        src/windows/file_path.cpp
+        src/windows/network.cpp
+        src/windows/single_instance.cpp)
     target_include_directories(AutoSZUWebCore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     if(MINGW AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/libcrypto.a")
         target_link_libraries(AutoSZUWebCore PUBLIC
@@ -43,11 +56,23 @@ if(WIN32)
     endif()
     target_link_libraries(AutoSZUWebCore PUBLIC ws2_32 crypt32 bcrypt shell32)
 elseif(APPLE)
+    target_sources(AutoSZUWebCore PRIVATE
+        src/macos/ui.mm
+        src/macos/sys.cpp
+        src/macos/file_path.cpp
+        src/posix/network.cpp
+        src/posix/single_instance.cpp)
     find_package(OpenSSL REQUIRED)
-    target_link_libraries(AutoSZUWebCore PUBLIC OpenSSL::Crypto "-framework Security")
+    target_link_libraries(AutoSZUWebCore PUBLIC
+        OpenSSL::Crypto "-framework Security" "-framework Cocoa")
 elseif(UNIX AND AUTOSZUWEB_BUILD_TESTS)
+    target_sources(AutoSZUWebCore PRIVATE
+        src/linux/ui.cpp
+        src/linux/sys.cpp
+        src/linux/file_path.cpp
+        src/posix/network.cpp
+        src/posix/single_instance.cpp)
     find_package(OpenSSL REQUIRED)
-    target_compile_definitions(AutoSZUWebCore PUBLIC AUTOSZUWEB_LINUX_TEST=1)
     target_link_libraries(AutoSZUWebCore PUBLIC OpenSSL::Crypto)
 else()
     message(FATAL_ERROR "AutoSZUWeb supports Windows and macOS; Linux is available only for tests")
@@ -118,12 +143,9 @@ if(AUTOSZUWEB_BUILD_TESTS)
     add_executable(AutoSZUWebTests tests/test_main.cpp)
     target_link_libraries(AutoSZUWebTests PRIVATE AutoSZUWebCore)
     if(APPLE)
-        target_sources(AutoSZUWebTests PRIVATE src/mac_ui.mm)
-        target_link_libraries(AutoSZUWebTests PRIVATE "-framework Cocoa")
-
         add_executable(AutoSZUWebMacUITests
             tests/mac_ui_test.mm
-            src/mac_ui.mm)
+            src/macos/ui.mm)
         target_include_directories(AutoSZUWebMacUITests PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include)
         target_link_libraries(AutoSZUWebMacUITests PRIVATE "-framework Cocoa")

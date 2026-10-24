@@ -1,8 +1,11 @@
 #include "app_ui.h"
+#include "cli.h"
+#include "config.h"
 #include "file_path.h"
 #include "runtime.h"
 #include "single_instance.h"
 #include "sys.h"
+#include "uninstall.h"
 #include "web.h"
 #include "user_data.h"
 
@@ -12,6 +15,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -26,6 +30,89 @@ namespace
     {
         AppUI::ShowMessage(message, "提示");
         std::exit(1);
+    }
+
+    // 手动认证模式：认证一次后退出，不写配置、不注册自启动、不进入监控循环。
+    int RunOneShotAuth(const std::string& account, const std::string& password)
+    {
+        FirstBoot = false; // 抑制首启认证弹窗，改用控制台输出。
+        std::string message;
+        const bool ok = Login(account, password, message);
+        if (PrepareCliConsole())
+            std::cout << (ok ? "认证成功: " : "认证失败: ") << message << '\n';
+        else
+            AppUI::ShowMessage(message, ok ? "认证成功" : "认证失败");
+        return ok ? 0 : 1;
+    }
+
+    // 修改 setting.json 的后台自动认证开关（跳过单实例守卫，可与常驻实例并存）。
+    // 运行中的常驻实例在每个监控周期重新读取该字段，约 10 秒内应用。
+    int RunSetAutoAuth(bool enabled)
+    {
+        const fs::path configPath = GetConfigPath();
+        if (configPath.empty())
+        {
+            AppUI::ShowMessage("无法确定配置文件路径。");
+            return 1;
+        }
+        if (!fs::exists(configPath) || !fs::is_regular_file(configPath))
+        {
+            const std::string message = "尚未完成首次配置，请先启动程序完成配置。";
+            if (PrepareCliConsole())
+                std::cerr << message << '\n';
+            else
+                AppUI::ShowMessage(message);
+            return 1;
+        }
+
+        std::string error;
+        if (!Config::WriteAutoAuthEnabled(configPath, enabled, error))
+        {
+            const std::string message = "修改配置失败：" + error;
+            if (PrepareCliConsole())
+                std::cerr << message << '\n';
+            else
+                AppUI::ShowMessage(message);
+            return 1;
+        }
+
+        // 探测常驻实例是否在运行，用于提示生效时机。
+        bool residentRunning = false;
+        {
+            Runtime::SingleInstanceGuard probe(
+                configPath.parent_path() / "AutoSZUWeb.instance.lock");
+            residentRunning = !probe.IsPrimary();
+        }
+
+        std::string report =
+            enabled ? "已开启后台自动认证。" : "已关闭后台自动认证。";
+        if (residentRunning)
+            report += "\n运行中的实例将在下一次检测（约 10 秒内）应用该设置。";
+        if (PrepareCliConsole())
+            std::cout << report << '\n';
+        else
+            AppUI::ShowMessage(report);
+        return 0;
+    }
+
+    // 卸载模式：确认后移除自启动、共享数据与平台痕迹（含程序本体）。
+    int RunUninstall()
+    {
+        if (AppUI::ShowMessage(
+                "确定要从本机完全卸载 AutoSZUWeb 吗？\n\n"
+                "将删除：开机自启动设置、配置文件与日志、凭据密钥以及程序本体。",
+                "卸载确认", true) == AppUI::Button::Cancel)
+            return 0;
+
+        std::string error;
+        const bool ok = Uninstall::RemoveAll(error);
+        const std::string report =
+            ok ? std::string("卸载完成。") : "卸载完成，但" + error;
+        if (PrepareCliConsole())
+            std::cout << report << '\n';
+        else
+            AppUI::ShowMessage(report, "卸载");
+        return ok ? 0 : 1;
     }
 
     void RunMainLoop()
@@ -60,12 +147,22 @@ namespace
         // 每次启动都修复/刷新自启动配置，允许用户移动 .app 后自动更新路径。
         SetAutoStart();
 
-        const bool online = Login(account, password);
+        // AutoAuth 字段控制是否后台自动认证（默认开启）。关闭时启动不认证，
+        // 常驻循环保持静默；每个周期重新读取字段，运行中修改即可生效。
+        const bool autoAuthEnabled = Config::ReadAutoAuthEnabled(loginPath);
+        const bool online = autoAuthEnabled && Login(account, password);
         FirstBoot = false;
 
         Runtime::MonitorCallbacks callbacks;
-        callbacks.login = [&] { return Login(account, password); };
-        callbacks.networkCheck = [] { return NetworkCheck(); };
+        callbacks.login = [&] {
+            return Config::ReadAutoAuthEnabled(loginPath) &&
+                Login(account, password);
+        };
+        callbacks.networkCheck = [&] {
+            // 关闭时视为在线以保持静默；重新开启后恢复真实探测，
+            // 若此时实际离线则转入离线态并在下一周期自动认证。
+            return !Config::ReadAutoAuthEnabled(loginPath) || NetworkCheck();
+        };
         callbacks.sleep = [](std::chrono::milliseconds duration) {
             std::this_thread::sleep_for(duration);
         };
@@ -154,8 +251,32 @@ bool IsFirstBoot()
     return FirstBoot;
 }
 
-int main()
+int main(int argc, char* argv[])
 {
+    const Cli::Parsed parsed = Cli::Parse(GetUtf8Arguments(argc, argv));
+
+    if (parsed.action == Cli::Action::Help)
+    {
+        if (PrepareCliConsole())
+            Cli::PrintUsage(std::cout);
+        return 0;
+    }
+    if (parsed.action == Cli::Action::UsageError)
+    {
+        if (PrepareCliConsole())
+        {
+            std::cerr << "参数无效。\n\n";
+            Cli::PrintUsage(std::cerr);
+        }
+        return 2;
+    }
+    if (parsed.action == Cli::Action::Uninstall)
+        return RunUninstall();
+    if (parsed.action == Cli::Action::OneShotAuth)
+        return RunOneShotAuth(parsed.account, parsed.password);
+    if (parsed.action == Cli::Action::SetAutoAuth)
+        return RunSetAutoAuth(parsed.autoAuthEnabled);
+
     const fs::path configPath = GetConfigPath();
     if (configPath.empty())
         ExitWithMessage("无法确定配置文件路径。");
