@@ -1,5 +1,6 @@
 #include "app_ui.h"
 #include "cli.h"
+#include "config.h"
 #include "file_path.h"
 #include "network.h"
 #include "platform_support.h"
@@ -8,6 +9,8 @@
 #include "sys.h"
 #include "uninstall.h"
 #include "user_data.h"
+
+#include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <cstdlib>
@@ -120,10 +123,24 @@ namespace
             "cli: option plus extra argument is a usage error");
         Check(Cli::Parse({"a", "b", "c"}).action == Cli::Action::UsageError,
             "cli: too many arguments is a usage error");
+        const Cli::Parsed enableAuto = Cli::Parse({"--auto", "true"});
+        Check(enableAuto.action == Cli::Action::SetAutoAuth &&
+              enableAuto.autoAuthEnabled,
+            "cli: --auto true selects enabling auto auth");
+        const Cli::Parsed disableAuto = Cli::Parse({"--auto", "FALSE"});
+        Check(disableAuto.action == Cli::Action::SetAutoAuth &&
+              !disableAuto.autoAuthEnabled,
+            "cli: --auto false selects disabling auto auth");
+        Check(Cli::Parse({"--auto"}).action == Cli::Action::UsageError,
+            "cli: --auto without value is a usage error");
+        Check(Cli::Parse({"--auto", "yes"}).action == Cli::Action::UsageError,
+            "cli: --auto with invalid value is a usage error");
         std::ostringstream usage;
         Cli::PrintUsage(usage);
         Check(usage.str().find("--uninstall") != std::string::npos,
             "cli: usage text mentions --uninstall");
+        Check(usage.str().find("--auto") != std::string::npos,
+            "cli: usage text mentions --auto");
 
         const std::vector<std::string> arguments = GetUtf8Arguments(argc, argv);
         bool roundTrip = arguments.size() ==
@@ -237,6 +254,57 @@ namespace
             "uninstall: desktop userdata.txt removed");
         Check(!fs::exists(dataDirectory),
             "uninstall: data directory removed");
+    }
+
+    void TestAutoAuthConfig(const fs::path& root)
+    {
+        const fs::path dataRoot = root / "autoauth-data";
+        SetEnvironment("AUTOSZUWEB_DATA_ROOT", dataRoot.u8string());
+        const fs::path config = GetConfigPath();
+        Check(!config.empty() && fs::is_directory(config.parent_path()),
+            "auto-auth: config directory available");
+        {
+            std::ofstream output(config, std::ios::trunc);
+            output << nlohmann::json{
+                {"Account", "encrypted-account"},
+                {"Password", "encrypted-password"}
+            }.dump(2);
+        }
+
+        Check(Config::ReadAutoAuthEnabled(config),
+            "auto-auth: missing field defaults to enabled");
+        Check(Config::ReadAutoAuthEnabled(root / "missing.json"),
+            "auto-auth: missing file defaults to enabled");
+
+        std::string error;
+        Check(Config::WriteAutoAuthEnabled(config, false, error),
+            "auto-auth: disabling writes config");
+        const nlohmann::json updated = nlohmann::json::parse(ReadAll(config));
+        Check(updated.value("Account", "") == "encrypted-account" &&
+              updated.value("Password", "") == "encrypted-password",
+            "auto-auth: existing fields are preserved");
+        Check(updated.value("AutoAuth", true) == false,
+            "auto-auth: AutoAuth field is written");
+        Check(!Config::ReadAutoAuthEnabled(config),
+            "auto-auth: disabled value round trips");
+
+        Check(Config::WriteAutoAuthEnabled(config, true, error),
+            "auto-auth: enabling writes config");
+        Check(Config::ReadAutoAuthEnabled(config),
+            "auto-auth: enabled value round trips");
+        Check(!fs::exists(fs::path(config) += ".tmp"),
+            "auto-auth: no temporary file is left behind");
+
+        {
+            std::ofstream output(config, std::ios::trunc);
+            output << "{broken";
+        }
+        error.clear();
+        Check(!Config::WriteAutoAuthEnabled(config, true, error) && !error.empty(),
+            "auto-auth: corrupt config is rejected");
+        error.clear();
+        Check(!Config::WriteAutoAuthEnabled(root / "missing.json", true, error),
+            "auto-auth: missing config is rejected");
     }
 
     void TestLaunchAgentPlist()
@@ -358,6 +426,7 @@ int main(int argc, char* argv[])
         TestUserDataFileLifecycle(root);
         TestPathsAndLogging(root);
         TestUninstallSharedData(root);
+        TestAutoAuthConfig(root);
 #ifdef __APPLE__
         const fs::path launchAgentRoot = root / "LaunchAgents";
         SetEnvironment("AUTOSZUWEB_LAUNCH_AGENT_DIR", launchAgentRoot.u8string());

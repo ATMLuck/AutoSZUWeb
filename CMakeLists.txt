@@ -9,6 +9,7 @@ option(AUTOSZUWEB_BUILD_TESTS "Build platform and logic tests" ON)
 
 set(AUTOSZUWEB_CORE_SOURCES
     src/cli.cpp
+    src/config.cpp
     src/internal/credential_crypto.cpp
     src/platform_support.cpp
     src/runtime.cpp
@@ -31,6 +32,12 @@ add_library(AutoSZUWebCore STATIC ${AUTOSZUWEB_CORE_SOURCES})
 target_include_directories(AutoSZUWebCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(AutoSZUWebCore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/internal)
 target_compile_features(AutoSZUWebCore PUBLIC cxx_std_17)
+# Core 使用 nlohmann/json（config.cpp）。MSYS2 环境没有 CMake 配置包，
+# 头文件位于编译器默认包含路径；其余环境在找到配置包时链接目标以获得包含路径。
+find_package(nlohmann_json CONFIG QUIET)
+if(nlohmann_json_FOUND)
+    target_link_libraries(AutoSZUWebCore PUBLIC nlohmann_json::nlohmann_json)
+endif()
 
 if(WIN32)
     target_sources(AutoSZUWebCore PRIVATE
