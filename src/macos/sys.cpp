@@ -265,7 +265,7 @@ bool RemovePlatformResidue(std::vector<fs::path>& leftovers, std::string& error)
     // 先卸载 LaunchAgent，顺带终止 launchd 拉起的后台实例，避免其继续重建
     // 日志目录。自身是 launchd 子进程时跳过（进程即将退出，下次登录 plist
     // 已删除不会再加载）。
-    if (std::getppid() != 1)
+    if (::getppid() != 1)
     {
         const std::string command = "launchctl bootout gui/" +
             std::to_string(::getuid()) + "/" + kMacLaunchAgentLabel +
