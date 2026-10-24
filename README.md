@@ -23,6 +23,8 @@ AutoSZUWeb 是深圳大学校园网后台自动认证工具。配置账号后，
 
 - 后台常驻、断网自动重连；
 - 教学/办公区 SRun + 宿舍区 ePortal 双认证；
+- 命令行手动认证：`AutoSZUWeb 卡号 密码` 认证一次后退出；
+- 一键卸载：`AutoSZUWeb --uninstall` 清除自启动、配置、日志、凭据密钥与程序本体；
 - Windows 首次认证结果提示；macOS 启动认证结果仅写日志，后台静默运行；
 - 本地加密保存凭据；
 - 用户登录后自动启动；
@@ -53,6 +55,19 @@ cmake --build build/windows --parallel
 ```text
 %APPDATA%\AutoSZUWeb\setting.json
 %APPDATA%\AutoSZUWeb\logs\auth_YYYY-MM-DD.log
+```
+
+### 命令行
+
+```powershell
+# 手动认证一次（成功退出码 0，失败 1；不写配置、不影响自启动与后台实例）
+.\AutoSZUWeb.exe 卡号 密码
+
+# 从本机完全卸载（自启动、配置、日志、密钥与程序本体）
+.\AutoSZUWeb.exe --uninstall
+
+# 查看用法
+.\AutoSZUWeb.exe --help
 ```
 
 ## macOS 使用
@@ -93,6 +108,16 @@ DMG 输出到 `dist/macos/`。无 Developer ID 时生成 ad-hoc 签名测试包�
 
 首次访问桌面上的 `userdata.txt` 时，macOS 可能请求“桌面文件夹”权限，请选择允许。
 
+### 命令行
+
+```bash
+# 手动认证一次（成功退出码 0，失败 1）
+AutoSZUWeb.app/Contents/MacOS/AutoSZUWeb 卡号 密码
+
+# 从本机完全卸载
+AutoSZUWeb.app/Contents/MacOS/AutoSZUWeb --uninstall
+```
+
 ## 工作流程
 
 ```text
@@ -114,6 +139,7 @@ DMG 输出到 `dist/macos/`。无 Developer ID 时生成 ad-hoc 签名测试包�
 - macOS 使用当前用户登录钥匙串保存 256 位随机密钥，配置密文采用随机 IV 的 AES-256-GCM；
 - macOS 密钥保存在当前用户登录钥匙串中；正式分发版应完成应用签名，并在真机上复核钥匙串访问控制；
 - ePortal 密码参数会进行 URL 编码；
+- 命令行手动认证的密码以明文传递，会留在 Shell 历史与进程列表中，仅建议手动临时使用；
 - 凭据不会上传到第三方，但校园认证请求本身按照校园网协议发送给校内认证服务器；
 - 与当前用户处于同一安全上下文的恶意程序仍可能调用平台凭据 API，应保证设备安全。
 
@@ -127,7 +153,19 @@ ctest --test-dir build/test --output-on-failure
 
 ## 卸载
 
-Windows：删除当前用户 Run 注册表中的 `AutoSZUWeb`，再删除 `%APPDATA%\AutoSZUWeb`。
+推荐使用命令行一键卸载，执行后会先弹窗确认，确认后清除自启动注册、配置与日志、凭据密钥以及程序本体：
+
+```powershell
+.\AutoSZUWeb.exe --uninstall
+```
+
+```bash
+AutoSZUWeb.app/Contents/MacOS/AutoSZUWeb --uninstall
+```
+
+若仍有后台实例占用文件，程序会在结果中列出未删除项，请结束 AutoSZUWeb 进程或重启后手动删除。注意：从哪个程序本体执行卸载，就会删除哪个本体；正在运行的文件由系统在本程序退出后延迟删除。
+
+也可以手动卸载。Windows：删除当前用户 Run 注册表中的 `AutoSZUWeb`，再删除 `%APPDATA%\AutoSZUWeb`（含自启动副本 `AutoSZUWeb.exe`）与本程序本体。
 
 macOS：
 
