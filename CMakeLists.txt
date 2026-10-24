@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(AUTOSZUWEB_BUILD_TESTS "Build platform and logic tests" ON)
 
 set(AUTOSZUWEB_CORE_SOURCES
+    src/cli.cpp
     src/internal/credential_crypto.cpp
     src/platform_support.cpp
     src/runtime.cpp

@@ -8,6 +8,7 @@
 
 #include <windows.h>
 #include <shlobj.h>
+#include <shellapi.h>
 #include <dpapi.h>
 #include <wincrypt.h>
 
@@ -52,6 +53,49 @@ void SetAutoStart()
     RegCloseKey(key);
     if (writeResult != ERROR_SUCCESS)
         AppUI::ShowMessage("写入注册表失败");
+}
+
+std::vector<std::string> GetUtf8Arguments(int, char**)
+{
+    int wideCount = 0;
+    LPWSTR* wideArguments = CommandLineToArgvW(GetCommandLineW(), &wideCount);
+    if (!wideArguments)
+        return {};
+
+    std::vector<std::string> arguments;
+    arguments.reserve(static_cast<size_t>(wideCount > 1 ? wideCount - 1 : 0));
+    for (int i = 1; i < wideCount; ++i)
+    {
+        const int length = WideCharToMultiByte(CP_UTF8, 0,
+            wideArguments[i], lstrlenW(wideArguments[i]), nullptr, 0, nullptr, nullptr);
+        if (length <= 0)
+        {
+            arguments.emplace_back();
+            continue;
+        }
+        std::string converted(static_cast<size_t>(length), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wideArguments[i], lstrlenW(wideArguments[i]),
+            converted.data(), length, nullptr, nullptr);
+        arguments.push_back(std::move(converted));
+    }
+    LocalFree(wideArguments);
+    return arguments;
+}
+
+bool PrepareCliConsole()
+{
+    // stdout 已连接管道或文件（Git Bash、重定向、IDE）时直接使用。
+    const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (output && output != INVALID_HANDLE_VALUE &&
+        GetFileType(output) != FILE_TYPE_UNKNOWN)
+        return true;
+
+    // 从 cmd/PowerShell 启动时附加其控制台；双击启动则无控制台可用。
+    if (!AttachConsole(ATTACH_PARENT_PROCESS))
+        return false;
+    freopen("CONOUT$", "w", stdout);
+    freopen("CONOUT$", "w", stderr);
+    return true;
 }
 
 std::string EncryptStr(const std::string& plaintext)

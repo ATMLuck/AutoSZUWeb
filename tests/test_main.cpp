@@ -1,4 +1,5 @@
 #include "app_ui.h"
+#include "cli.h"
 #include "file_path.h"
 #include "network.h"
 #include "platform_support.h"
@@ -12,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -93,6 +95,42 @@ namespace
         if (!tampered.empty())
             tampered[tampered.size() / 2] = tampered[tampered.size() / 2] == 'A' ? 'B' : 'A';
         Check(DecryptStr(tampered).empty(), "tampered credential is rejected");
+    }
+
+    void TestCli(int argc, char* argv[])
+    {
+        Check(Cli::Parse({}).action == Cli::Action::NormalStartup,
+            "cli: no arguments starts the resident mode");
+        Check(Cli::Parse({"--uninstall"}).action == Cli::Action::Uninstall,
+            "cli: --uninstall selects uninstall mode");
+        Check(Cli::Parse({"--help"}).action == Cli::Action::Help,
+            "cli: --help selects help");
+        Check(Cli::Parse({"-h"}).action == Cli::Action::Help,
+            "cli: -h selects help");
+        Check(Cli::Parse({"--nonsense"}).action == Cli::Action::UsageError,
+            "cli: unknown option is a usage error");
+        Check(Cli::Parse({"account-only"}).action == Cli::Action::UsageError,
+            "cli: single non-option argument is a usage error");
+        const Cli::Parsed auth = Cli::Parse({"2026123456", "测试密码"});
+        Check(auth.action == Cli::Action::OneShotAuth &&
+              auth.account == "2026123456" && auth.password == "测试密码",
+            "cli: account and password select one-shot auth");
+        Check(Cli::Parse({"--uninstall", "extra"}).action == Cli::Action::UsageError,
+            "cli: option plus extra argument is a usage error");
+        Check(Cli::Parse({"a", "b", "c"}).action == Cli::Action::UsageError,
+            "cli: too many arguments is a usage error");
+        std::ostringstream usage;
+        Cli::PrintUsage(usage);
+        Check(usage.str().find("--uninstall") != std::string::npos,
+            "cli: usage text mentions --uninstall");
+
+        const std::vector<std::string> arguments = GetUtf8Arguments(argc, argv);
+        bool roundTrip = arguments.size() ==
+            static_cast<size_t>(argc > 0 ? argc - 1 : 0);
+        for (size_t i = 0; roundTrip && i < arguments.size(); ++i)
+            roundTrip = arguments[i] == argv[i + 1];
+        Check(roundTrip, "cli: UTF-8 argument round trip without program name");
+        Check(PrepareCliConsole(), "cli: console output can be prepared");
     }
 
     void TestAuthenticationResultUiPolicy()
@@ -266,7 +304,7 @@ namespace
     }
 }
 
-int main()
+int main(int argc, char* argv[])
 {
     const fs::path root = fs::temp_directory_path() /
         ("AutoSZUWebTests-" + std::to_string(
@@ -276,6 +314,7 @@ int main()
     try
     {
         TestEncryption();
+        TestCli(argc, argv);
         TestAuthenticationResultUiPolicy();
         TestUserDataFileLifecycle(root);
         TestPathsAndLogging(root);
