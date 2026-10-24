@@ -26,7 +26,6 @@ set(AUTOSZUWEB_APP_SOURCES
 
 if(APPLE)
     enable_language(OBJCXX)
-    list(APPEND AUTOSZUWEB_APP_SOURCES src/mac_ui.mm)
 endif()
 
 add_library(AutoSZUWebCore STATIC ${AUTOSZUWEB_CORE_SOURCES})
@@ -35,6 +34,7 @@ target_include_directories(AutoSZUWebCore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sr
 target_compile_features(AutoSZUWebCore PUBLIC cxx_std_17)
 
 if(WIN32)
+    target_sources(AutoSZUWebCore PRIVATE src/windows/ui.cpp)
     target_include_directories(AutoSZUWebCore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     if(MINGW AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/libcrypto.a")
         target_link_libraries(AutoSZUWebCore PUBLIC
@@ -45,9 +45,12 @@ if(WIN32)
     endif()
     target_link_libraries(AutoSZUWebCore PUBLIC ws2_32 crypt32 bcrypt shell32)
 elseif(APPLE)
+    target_sources(AutoSZUWebCore PRIVATE src/macos/ui.mm)
     find_package(OpenSSL REQUIRED)
-    target_link_libraries(AutoSZUWebCore PUBLIC OpenSSL::Crypto "-framework Security")
+    target_link_libraries(AutoSZUWebCore PUBLIC
+        OpenSSL::Crypto "-framework Security" "-framework Cocoa")
 elseif(UNIX AND AUTOSZUWEB_BUILD_TESTS)
+    target_sources(AutoSZUWebCore PRIVATE src/linux/ui.cpp)
     find_package(OpenSSL REQUIRED)
     target_compile_definitions(AutoSZUWebCore PUBLIC AUTOSZUWEB_LINUX_TEST=1)
     target_link_libraries(AutoSZUWebCore PUBLIC OpenSSL::Crypto)
@@ -120,12 +123,9 @@ if(AUTOSZUWEB_BUILD_TESTS)
     add_executable(AutoSZUWebTests tests/test_main.cpp)
     target_link_libraries(AutoSZUWebTests PRIVATE AutoSZUWebCore)
     if(APPLE)
-        target_sources(AutoSZUWebTests PRIVATE src/mac_ui.mm)
-        target_link_libraries(AutoSZUWebTests PRIVATE "-framework Cocoa")
-
         add_executable(AutoSZUWebMacUITests
             tests/mac_ui_test.mm
-            src/mac_ui.mm)
+            src/macos/ui.mm)
         target_include_directories(AutoSZUWebMacUITests PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include)
         target_link_libraries(AutoSZUWebMacUITests PRIVATE "-framework Cocoa")

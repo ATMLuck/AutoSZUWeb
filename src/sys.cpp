@@ -9,7 +9,6 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -207,21 +206,7 @@ namespace
     }
 #endif
 
-#ifdef _WIN32
-    std::wstring Utf8ToWide(const std::string& text)
-    {
-        if (text.empty())
-            return {};
-        int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-            text.data(), static_cast<int>(text.size()), nullptr, 0);
-        if (length <= 0)
-            return {};
-        std::wstring wide(static_cast<size_t>(length), L'\0');
-        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-            text.data(), static_cast<int>(text.size()), wide.data(), length);
-        return wide;
-    }
-#elif defined(__APPLE__)
+#ifdef __APPLE__
     fs::path CurrentExecutablePath()
     {
         uint32_t size = PATH_MAX;
@@ -257,35 +242,6 @@ namespace
         std::strftime(dateBuffer, dateSize, "%Y-%m-%d", &local);
 #endif
     }
-}
-
-#ifdef _WIN32
-AppUI::Button AppUI::ShowMessage(const std::string& text, const std::string& title,
-                          bool allowCancel)
-{
-    const int result = MessageBoxW(nullptr, Utf8ToWide(text).c_str(),
-        Utf8ToWide(title).c_str(),
-        (allowCancel ? MB_OKCANCEL : MB_OK) | MB_ICONINFORMATION);
-    return allowCancel && result == IDCANCEL ? Button::Cancel : Button::Ok;
-}
-#elif defined(__linux__) && defined(AUTOSZUWEB_LINUX_TEST)
-AppUI::Button AppUI::ShowMessage(const std::string& text, const std::string& title,
-                          bool allowCancel)
-{
-    std::cout << "[" << title << "] " << text << std::endl;
-    const char* response = std::getenv("AUTOSZUWEB_UI_RESPONSE");
-    return allowCancel && response && std::string(response) == "cancel"
-        ? Button::Cancel : Button::Ok;
-}
-#endif
-
-bool AppUI::ShouldShowAuthenticationResult()
-{
-#ifdef _WIN32
-    return true;
-#else
-    return false;
-#endif
 }
 
 void SetAutoStart()
