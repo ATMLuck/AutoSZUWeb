@@ -37,11 +37,22 @@ jobs:
           path: build-ci/AutoSZUWeb.exe
 
   macos:
-    runs-on: macos-14
+    name: macos (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-14 已进入退役流程（2026-11-02 停用），统一使用 macos-15。
+          - runner: macos-15
+            arch: arm64
+          # GitHub 已于 2025-12 退役 macos-13；macos-15-intel 是当前的 x86_64 镜像。
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: brew install cmake curl openssl@3 nlohmann-json dylibbundler
+        run: brew install cmake ninja curl openssl@3 nlohmann-json dylibbundler
       - name: Configure
         run: >-
           cmake -S . -B build-ci -G Ninja
@@ -64,12 +75,12 @@ jobs:
       - name: Test
         env:
           AUTOSZUWEB_LAUNCH_AGENT_DIR: ${{ runner.temp }}/LaunchAgents
-          AUTOSZUWEB_KEYCHAIN_SERVICE: com.autoszuweb.AutoSZUWeb.ci.${{ github.run_id }}.${{ github.run_attempt }}
+          AUTOSZUWEB_KEYCHAIN_SERVICE: com.autoszuweb.AutoSZUWeb.ci.${{ github.run_id }}.${{ github.run_attempt }}.${{ matrix.arch }}
         run: ctest --test-dir build-ci --output-on-failure
       - name: Verify and remove test keychain
         if: always()
         env:
-          AUTOSZUWEB_KEYCHAIN_SERVICE: com.autoszuweb.AutoSZUWeb.ci.${{ github.run_id }}.${{ github.run_attempt }}
+          AUTOSZUWEB_KEYCHAIN_SERVICE: com.autoszuweb.AutoSZUWeb.ci.${{ github.run_id }}.${{ github.run_attempt }}.${{ matrix.arch }}
         run: |
           status=0
           security find-generic-password -s "$AUTOSZUWEB_KEYCHAIN_SERVICE" "$AUTOSZUWEB_TEST_KEYCHAIN" >/dev/null || status=$?
@@ -78,6 +89,7 @@ jobs:
       - name: Verify app bundle
         run: |
           test -x build-ci/AutoSZUWeb.app/Contents/MacOS/AutoSZUWeb
+          lipo -info build-ci/AutoSZUWeb.app/Contents/MacOS/AutoSZUWeb | grep -qw ${{ matrix.arch }}
           plutil -lint build-ci/AutoSZUWeb.app/Contents/Info.plist
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' build-ci/AutoSZUWeb.app/Contents/Info.plist)" = "true"
       - name: Build self-contained test DMG
@@ -91,5 +103,5 @@ jobs:
       - name: Upload self-contained macOS test DMG
         uses: actions/upload-artifact@v4
         with:
-          name: AutoSZUWeb-macOS-arm64-test-dmg
+          name: AutoSZUWeb-macOS-${{ matrix.arch }}-test-dmg
           path: ${{ runner.temp }}/macos-dist/*.dmg
