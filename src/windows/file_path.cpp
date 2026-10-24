@@ -3,11 +3,9 @@
 #include <cstdlib>
 #include <system_error>
 
-#ifdef _WIN32
 #include <windows.h>
 #include <shlobj.h>
 #include <vector>
-#endif
 
 namespace
 {
@@ -17,7 +15,6 @@ namespace
         return (value && *value) ? fs::u8path(value) : fs::path{};
     }
 
-#ifdef _WIN32
     fs::path KnownFolderPath(int folderId)
     {
         WCHAR widePath[MAX_PATH] = {};
@@ -25,7 +22,6 @@ namespace
             return {};
         return fs::path(widePath);
     }
-#endif
 }
 
 fs::path GetUsersFolderPath()
@@ -34,17 +30,7 @@ fs::path GetUsersFolderPath()
     if (!overridePath.empty())
         return overridePath;
 
-#ifdef _WIN32
     return KnownFolderPath(CSIDL_APPDATA);
-#elif defined(__APPLE__)
-    fs::path home = EnvironmentPath("HOME");
-    return home.empty() ? fs::path{} : home / "Library" / "Application Support";
-#elif defined(__linux__) && defined(AUTOSZUWEB_LINUX_TEST)
-    fs::path home = EnvironmentPath("HOME");
-    return home.empty() ? fs::path{} : home / ".local" / "share";
-#else
-#error "Unsupported platform"
-#endif
 }
 
 fs::path GetDesktopPath()
@@ -53,14 +39,7 @@ fs::path GetDesktopPath()
     if (!overridePath.empty())
         return overridePath;
 
-#ifdef _WIN32
     return KnownFolderPath(CSIDL_DESKTOP);
-#elif defined(__APPLE__) || (defined(__linux__) && defined(AUTOSZUWEB_LINUX_TEST))
-    fs::path home = EnvironmentPath("HOME");
-    return home.empty() ? fs::path{} : home / "Desktop";
-#else
-#error "Unsupported platform"
-#endif
 }
 
 fs::path GetConfigPath()
@@ -75,7 +54,6 @@ fs::path GetConfigPath()
 
     fs::path newPath = dir / "setting.json";
 
-#ifdef _WIN32
     fs::path oldPath = dataRoot / "autoWEB.json";
     if (fs::exists(oldPath, ec) && fs::is_regular_file(oldPath, ec))
     {
@@ -89,7 +67,6 @@ fs::path GetConfigPath()
         if (migrated)
             fs::remove(oldPath, ec);
     }
-#endif
 
     return newPath;
 }

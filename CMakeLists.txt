@@ -9,7 +9,6 @@ option(AUTOSZUWEB_BUILD_TESTS "Build platform and logic tests" ON)
 
 set(AUTOSZUWEB_CORE_SOURCES
     src/internal/credential_crypto.cpp
-    src/file_path.cpp
     src/network.cpp
     src/platform_support.cpp
     src/runtime.cpp
@@ -36,7 +35,8 @@ target_compile_features(AutoSZUWebCore PUBLIC cxx_std_17)
 if(WIN32)
     target_sources(AutoSZUWebCore PRIVATE
         src/windows/ui.cpp
-        src/windows/sys.cpp)
+        src/windows/sys.cpp
+        src/windows/file_path.cpp)
     target_include_directories(AutoSZUWebCore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     if(MINGW AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/libcrypto.a")
         target_link_libraries(AutoSZUWebCore PUBLIC
@@ -49,14 +49,16 @@ if(WIN32)
 elseif(APPLE)
     target_sources(AutoSZUWebCore PRIVATE
         src/macos/ui.mm
-        src/macos/sys.cpp)
+        src/macos/sys.cpp
+        src/macos/file_path.cpp)
     find_package(OpenSSL REQUIRED)
     target_link_libraries(AutoSZUWebCore PUBLIC
         OpenSSL::Crypto "-framework Security" "-framework Cocoa")
 elseif(UNIX AND AUTOSZUWEB_BUILD_TESTS)
     target_sources(AutoSZUWebCore PRIVATE
         src/linux/ui.cpp
-        src/linux/sys.cpp)
+        src/linux/sys.cpp
+        src/linux/file_path.cpp)
     find_package(OpenSSL REQUIRED)
     target_compile_definitions(AutoSZUWebCore PUBLIC AUTOSZUWEB_LINUX_TEST=1)
     target_link_libraries(AutoSZUWebCore PUBLIC OpenSSL::Crypto)
