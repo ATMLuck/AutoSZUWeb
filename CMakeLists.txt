@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(AUTOSZUWEB_BUILD_TESTS "Build platform and logic tests" ON)
 
 set(AUTOSZUWEB_CORE_SOURCES
+    src/internal/credential_crypto.cpp
     src/file_path.cpp
     src/network.cpp
     src/platform_support.cpp
@@ -30,6 +31,7 @@ endif()
 
 add_library(AutoSZUWebCore STATIC ${AUTOSZUWEB_CORE_SOURCES})
 target_include_directories(AutoSZUWebCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(AutoSZUWebCore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/internal)
 target_compile_features(AutoSZUWebCore PUBLIC cxx_std_17)
 
 if(WIN32)
