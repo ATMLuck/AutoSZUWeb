@@ -64,7 +64,6 @@ elseif(UNIX AND AUTOSZUWEB_BUILD_TESTS)
         src/posix/network.cpp
         src/posix/single_instance.cpp)
     find_package(OpenSSL REQUIRED)
-    target_compile_definitions(AutoSZUWebCore PUBLIC AUTOSZUWEB_LINUX_TEST=1)
     target_link_libraries(AutoSZUWebCore PUBLIC OpenSSL::Crypto)
 else()
     message(FATAL_ERROR "AutoSZUWeb supports Windows and macOS; Linux is available only for tests")
