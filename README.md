@@ -24,6 +24,7 @@ AutoSZUWeb 是深圳大学校园网后台自动认证工具。配置账号后，
 - 后台常驻、断网自动重连；
 - 教学/办公区 SRun + 宿舍区 ePortal 双认证；
 - 命令行手动认证：`AutoSZUWeb 卡号 密码` 认证一次后退出；
+- 后台自动认证开关：`--auto true|false` 写入 `setting.json` 的 `AutoAuth` 字段，运行中的实例约 10 秒内生效；
 - 一键卸载：`AutoSZUWeb --uninstall` 清除自启动、配置、日志、凭据密钥与程序本体；
 - Windows 首次认证结果提示；macOS 启动认证结果仅写日志，后台静默运行；
 - 本地加密保存凭据；
@@ -62,6 +63,10 @@ cmake --build build/windows --parallel
 ```powershell
 # 手动认证一次（成功退出码 0，失败 1；不写配置、不影响自启动与后台实例）
 .\AutoSZUWeb.exe 卡号 密码
+
+# 开启/关闭后台自动认证（写入 setting.json 的 AutoAuth 字段，默认开启；
+# 关闭后常驻进程不再自动认证，运行中的实例约 10 秒内应用；手动认证不受影响）
+.\AutoSZUWeb.exe --auto false
 
 # 从本机完全卸载（自启动、配置、日志、密钥与程序本体）
 .\AutoSZUWeb.exe --uninstall
@@ -113,6 +118,9 @@ DMG 输出到 `dist/macos/`。无 Developer ID 时生成 ad-hoc 签名测试包�
 ```bash
 # 手动认证一次（成功退出码 0，失败 1）
 AutoSZUWeb.app/Contents/MacOS/AutoSZUWeb 卡号 密码
+
+# 开启/关闭后台自动认证（同 Windows）
+AutoSZUWeb.app/Contents/MacOS/AutoSZUWeb --auto false
 
 # 从本机完全卸载
 AutoSZUWeb.app/Contents/MacOS/AutoSZUWeb --uninstall
