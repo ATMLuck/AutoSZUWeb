@@ -5,6 +5,7 @@
 #include "file_path.h"
 #include "platform_support.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -23,6 +24,7 @@ namespace
 {
     const char* kMacKeychainService = "com.autoszuweb.AutoSZUWeb";
     const char* kMacKeychainAccount = "credential-encryption-key";
+    const char* kMacLaunchAgentLabel = "com.autoszuweb.AutoSZUWeb";
 
     const char* MacKeychainService()
     {
@@ -191,7 +193,8 @@ void SetAutoStart()
     std::error_code error;
     fs::create_directories(launchAgents, error);
     fs::create_directories(logDirectory, error);
-    fs::path plistPath = launchAgents / "com.autoszuweb.AutoSZUWeb.plist";
+    fs::path plistPath =
+        launchAgents / (std::string(kMacLaunchAgentLabel) + ".plist");
     std::ofstream plist(plistPath, std::ios::trunc);
     if (!plist)
     {
@@ -219,6 +222,77 @@ std::vector<std::string> GetUtf8Arguments(int argc, char* argv[])
 
 bool PrepareCliConsole()
 {
+    return true;
+}
+
+void RemoveAutoStart()
+{
+    fs::path home = std::getenv("HOME") ? fs::u8path(std::getenv("HOME")) : fs::path{};
+    if (home.empty())
+        return;
+    fs::path launchAgents = home / "Library" / "LaunchAgents";
+    const char* launchAgentOverride = std::getenv("AUTOSZUWEB_LAUNCH_AGENT_DIR");
+    if (launchAgentOverride && *launchAgentOverride)
+        launchAgents = fs::u8path(launchAgentOverride);
+    std::error_code error;
+    fs::remove(launchAgents / (std::string(kMacLaunchAgentLabel) + ".plist"), error);
+}
+
+bool RemoveCredentialKey(std::string& error)
+{
+    CFStringRef service = CFStringCreateWithCString(nullptr,
+        MacKeychainService(), kCFStringEncodingUTF8);
+    CFStringRef account = CFStringCreateWithCString(nullptr,
+        kMacKeychainAccount, kCFStringEncodingUTF8);
+    const void* keys[] = { kSecClass, kSecAttrService, kSecAttrAccount };
+    const void* values[] = { kSecClassGenericPassword, service, account };
+    CFDictionaryRef query = CFDictionaryCreate(nullptr, keys, values, 3,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    const OSStatus status = SecItemDelete(query);
+    CFRelease(query);
+    CFRelease(service);
+    CFRelease(account);
+    if (status != errSecSuccess && status != errSecItemNotFound)
+    {
+        error = "删除 macOS 登录钥匙串密钥失败：" + MacStatusMessage(status);
+        return false;
+    }
+    return true;
+}
+
+bool RemovePlatformResidue(std::vector<fs::path>& leftovers, std::string& error)
+{
+    // 先卸载 LaunchAgent，顺带终止 launchd 拉起的后台实例，避免其继续重建
+    // 日志目录。自身是 launchd 子进程时跳过（进程即将退出，下次登录 plist
+    // 已删除不会再加载）。
+    if (std::getppid() != 1)
+    {
+        const std::string command = "launchctl bootout gui/" +
+            std::to_string(::getuid()) + "/" + kMacLaunchAgentLabel +
+            " >/dev/null 2>&1";
+        std::system(command.c_str());
+    }
+
+    if (!RemoveCredentialKey(error))
+        return false;
+
+    // 程序本体：.app 包（或裸二进制）；POSIX 允许删除正在运行的文件。
+    const fs::path executable = CurrentExecutablePath();
+    if (!executable.empty())
+    {
+        fs::path target = executable;
+        const std::string native = executable.u8string();
+        const size_t marker = native.find(".app/Contents/MacOS/");
+        if (marker != std::string::npos)
+            target = fs::u8path(native.substr(0, marker + 4)); // 含 ".app"
+        std::error_code removeError;
+        fs::remove_all(target, removeError);
+        if (!removeError && !fs::exists(target, removeError))
+            leftovers.erase(std::remove(leftovers.begin(), leftovers.end(), target),
+                leftovers.end());
+        else
+            leftovers.push_back(target);
+    }
     return true;
 }
 

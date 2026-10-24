@@ -27,6 +27,23 @@ void SetAutoStart()
     // Linux 分支仅为开发期编译与测试桩。
 }
 
+void RemoveAutoStart()
+{
+    // Linux 分支仅为开发期编译与测试桩。
+}
+
+bool RemoveCredentialKey(std::string&)
+{
+    // 测试桩使用固定内存密钥，无系统痕迹。
+    return true;
+}
+
+bool RemovePlatformResidue(std::vector<std::filesystem::path>&, std::string&)
+{
+    // Linux 分支仅为开发期编译与测试桩。
+    return true;
+}
+
 std::vector<std::string> GetUtf8Arguments(int argc, char* argv[])
 {
     // Linux 的 argv 本身就是 UTF-8 编码。

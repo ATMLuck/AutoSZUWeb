@@ -3,7 +3,10 @@
 #include "app_ui.h"
 #include "credential_crypto.h"
 
+#include <algorithm>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include <windows.h>
@@ -11,6 +14,8 @@
 #include <shellapi.h>
 #include <dpapi.h>
 #include <wincrypt.h>
+
+namespace fs = std::filesystem;
 
 void SetAutoStart()
 {
@@ -95,6 +100,88 @@ bool PrepareCliConsole()
         return false;
     freopen("CONOUT$", "w", stdout);
     freopen("CONOUT$", "w", stderr);
+    return true;
+}
+
+void RemoveAutoStart()
+{
+    HKEY key = nullptr;
+    const LONG openResult = RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+        0, KEY_SET_VALUE, &key);
+    if (openResult != ERROR_SUCCESS)
+        return;
+    // 值不存在（ERROR_FILE_NOT_FOUND）视为成功：本来就没有自启动。
+    RegDeleteValueW(key, L"AutoSZUWeb");
+    RegCloseKey(key);
+}
+
+bool RemoveCredentialKey(std::string&)
+{
+    // DPAPI 密文保存在配置文件内，无独立密钥可删。
+    return true;
+}
+
+namespace
+{
+    // 运行中的 exe 无法直接删除；派生独立 cmd 进程在本进程退出后延迟删除，
+    // 派生失败时回退为重启后删除。ping 用于等待（timeout 依赖控制台输入）。
+    void ScheduleDelayedDeletion(const std::wstring& path)
+    {
+        std::wstring command =
+            L"cmd.exe /c ping -n 3 127.0.0.1 >nul & del /f /q \"" + path + L"\"";
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION process{};
+        if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE,
+                CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process))
+        {
+            CloseHandle(process.hProcess);
+            CloseHandle(process.hThread);
+            return;
+        }
+        MoveFileExW(path.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+    }
+}
+
+bool RemovePlatformResidue(std::vector<fs::path>& leftovers, std::string&)
+{
+    WCHAR appdataPath[MAX_PATH] = {};
+    const bool hasAppdata = SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA,
+        nullptr, 0, appdataPath));
+    if (hasAppdata)
+    {
+        // 早期版本遗留在数据根目录下的旧配置。
+        std::error_code error;
+        fs::remove(fs::path(appdataPath) / "autoWEB.json", error);
+    }
+
+    // 程序本体：正在运行的 exe 由延迟删除接管（本进程退出后生效）。
+    fs::path runningExecutable;
+    WCHAR selfPath[MAX_PATH] = {};
+    if (GetModuleFileNameW(nullptr, selfPath, MAX_PATH) != 0)
+    {
+        runningExecutable = fs::path(selfPath);
+        ScheduleDelayedDeletion(runningExecutable.wstring());
+        leftovers.erase(std::remove(leftovers.begin(), leftovers.end(),
+                          runningExecutable),
+            leftovers.end());
+    }
+
+    // AppData 自启动副本：仍存在且不是运行中的 exe 时（被其他后台实例占用），
+    // 直接删除或安排延迟删除，并保留在 leftovers 中提示用户。
+    if (hasAppdata && !runningExecutable.empty())
+    {
+        const fs::path autostartCopy =
+            fs::path(appdataPath) / "AutoSZUWeb" / "AutoSZUWeb.exe";
+        std::error_code error;
+        if (fs::exists(autostartCopy, error) && autostartCopy != runningExecutable)
+        {
+            fs::remove(autostartCopy, error);
+            if (error || fs::exists(autostartCopy, error))
+                ScheduleDelayedDeletion(autostartCopy.wstring());
+        }
+    }
     return true;
 }
 

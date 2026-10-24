@@ -13,6 +13,7 @@ set(AUTOSZUWEB_CORE_SOURCES
     src/platform_support.cpp
     src/runtime.cpp
     src/sys.cpp
+    src/uninstall.cpp
     src/user_data.cpp
 )
 

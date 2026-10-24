@@ -6,6 +6,7 @@
 #include "runtime.h"
 #include "single_instance.h"
 #include "sys.h"
+#include "uninstall.h"
 #include "user_data.h"
 
 #include <chrono>
@@ -200,6 +201,44 @@ namespace
         Check(found, "authentication log content");
     }
 
+    void TestUninstallSharedData(const fs::path& root)
+    {
+        const fs::path dataRoot = root / "uninstall-data";
+        const fs::path desktopRoot = root / "uninstall-desktop";
+        SetEnvironment("AUTOSZUWEB_DATA_ROOT", dataRoot.u8string());
+        SetEnvironment("AUTOSZUWEB_DESKTOP_ROOT", desktopRoot.u8string());
+
+        const fs::path dataDirectory = dataRoot / "AutoSZUWeb";
+        fs::create_directories(dataDirectory / "logs");
+        {
+            std::ofstream output(dataDirectory / "setting.json");
+            output << "{}";
+            std::ofstream log(dataDirectory / "logs" / "auth_2026-01-01.log");
+            log << "entry";
+            std::ofstream lock(dataDirectory / "AutoSZUWeb.instance.lock");
+            lock << "1";
+        }
+        fs::create_directories(desktopRoot);
+        {
+            std::ofstream output(desktopRoot / "userdata.txt");
+            output << "2026123456\r\npassword\r\n";
+        }
+
+        std::vector<fs::path> leftovers;
+        Uninstall::RemoveSharedData(leftovers);
+        Check(leftovers.empty(), "uninstall: shared data removal has no leftovers");
+        Check(!fs::exists(dataDirectory / "setting.json"),
+            "uninstall: setting.json removed");
+        Check(!fs::exists(dataDirectory / "logs"),
+            "uninstall: logs directory removed");
+        Check(!fs::exists(dataDirectory / "AutoSZUWeb.instance.lock"),
+            "uninstall: instance lock file removed");
+        Check(!fs::exists(desktopRoot / "userdata.txt"),
+            "uninstall: desktop userdata.txt removed");
+        Check(!fs::exists(dataDirectory),
+            "uninstall: data directory removed");
+    }
+
     void TestLaunchAgentPlist()
     {
         const std::string plist = PlatformSupport::BuildLaunchAgentPlist(
@@ -318,6 +357,7 @@ int main(int argc, char* argv[])
         TestAuthenticationResultUiPolicy();
         TestUserDataFileLifecycle(root);
         TestPathsAndLogging(root);
+        TestUninstallSharedData(root);
 #ifdef __APPLE__
         const fs::path launchAgentRoot = root / "LaunchAgents";
         SetEnvironment("AUTOSZUWEB_LAUNCH_AGENT_DIR", launchAgentRoot.u8string());
@@ -326,6 +366,22 @@ int main(int argc, char* argv[])
         Check(fs::is_regular_file(launchAgent), "macOS LaunchAgent file creation");
         Check(ReadAll(launchAgent).find("AutoSZUWebTests") != std::string::npos,
             "macOS LaunchAgent uses current executable path");
+        RemoveAutoStart();
+        Check(!fs::exists(launchAgent), "macOS LaunchAgent removal");
+        // 钥匙串删除仅在设置了专用服务名（CI 环境）时验证，避免误删本机真实密钥。
+        if (std::getenv("AUTOSZUWEB_KEYCHAIN_SERVICE"))
+        {
+            std::string credentialError;
+            const std::string beforeRemoval = EncryptStr("卸载前密文");
+            Check(!beforeRemoval.empty(), "macOS keychain key exists before removal");
+            Check(RemoveCredentialKey(credentialError),
+                "macOS keychain credential key removal");
+            Check(DecryptStr(beforeRemoval).empty(),
+                "ciphertext is undecryptable after key removal");
+            const std::string recreated = EncryptStr("卸载后密文");
+            Check(!recreated.empty() && DecryptStr(recreated) == "卸载后密文",
+                "macOS credential key is recreated after removal");
+        }
 #endif
         TestLaunchAgentPlist();
         TestSingleInstanceGuard(root);

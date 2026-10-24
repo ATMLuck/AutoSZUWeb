@@ -4,6 +4,7 @@
 #include "runtime.h"
 #include "single_instance.h"
 #include "sys.h"
+#include "uninstall.h"
 #include "web.h"
 #include "user_data.h"
 
@@ -40,6 +41,26 @@ namespace
             std::cout << (ok ? "认证成功: " : "认证失败: ") << message << '\n';
         else
             AppUI::ShowMessage(message, ok ? "认证成功" : "认证失败");
+        return ok ? 0 : 1;
+    }
+
+    // 卸载模式：确认后移除自启动、共享数据与平台痕迹（含程序本体）。
+    int RunUninstall()
+    {
+        if (AppUI::ShowMessage(
+                "确定要从本机完全卸载 AutoSZUWeb 吗？\n\n"
+                "将删除：开机自启动设置、配置文件与日志、凭据密钥以及程序本体。",
+                "卸载确认", true) == AppUI::Button::Cancel)
+            return 0;
+
+        std::string error;
+        const bool ok = Uninstall::RemoveAll(error);
+        const std::string report =
+            ok ? std::string("卸载完成。") : "卸载完成，但" + error;
+        if (PrepareCliConsole())
+            std::cout << report << '\n';
+        else
+            AppUI::ShowMessage(report, "卸载");
         return ok ? 0 : 1;
     }
 
@@ -188,6 +209,8 @@ int main(int argc, char* argv[])
         }
         return 2;
     }
+    if (parsed.action == Cli::Action::Uninstall)
+        return RunUninstall();
     if (parsed.action == Cli::Action::OneShotAuth)
         return RunOneShotAuth(parsed.account, parsed.password);
 

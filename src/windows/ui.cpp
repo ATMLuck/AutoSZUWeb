@@ -27,7 +27,9 @@ AppUI::Button AppUI::ShowMessage(const std::string& text, const std::string& tit
     const int result = MessageBoxW(nullptr, Utf8ToWide(text).c_str(),
         Utf8ToWide(title).c_str(),
         (allowCancel ? MB_OKCANCEL : MB_OK) | MB_ICONINFORMATION);
-    return allowCancel && result == IDCANCEL ? Button::Cancel : Button::Ok;
+    // MessageBoxW 失败时返回 0：映射为取消，避免弹窗失败被误当作确定
+    // （卸载确认等破坏性操作必须显式选择确定）。
+    return result == IDOK ? Button::Ok : Button::Cancel;
 }
 
 bool AppUI::ShouldShowAuthenticationResult()
